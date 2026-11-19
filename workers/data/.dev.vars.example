@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `npm run dev`. Enables POST /admin/refresh locally.
+REFRESH_TOKEN=dev-token

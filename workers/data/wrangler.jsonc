@@ -1,0 +1,36 @@
+// bcw-data — fans out to NWS, CO-OPS, NDBC and CPC and serves compact,
+// cached snapshots. Cache lifetimes per data type live in src/groups.js.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "bcw-data",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  // Only reachable through the bcw-site service binding.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+
+  // Durable snapshot store. The Worker writes and reads it itself through this
+  // binding (env.SNAPSHOTS); nothing needs uploading and the bucket stays
+  // private. Create it once (dashboard, or `wrangler r2 bucket create
+  // bcw-snapshots`; the deploy workflow does this if it's missing). If you
+  // created it with a jurisdiction (e.g. EU), add "jurisdiction": "eu" below.
+  "r2_buckets": [
+    { "binding": "SNAPSHOTS", "bucket_name": "bcw-snapshots", "preview_bucket_name": "bcw-snapshots-preview" }
+  ],
+
+  // Pre-warm schedules. Must match the `cron` values in src/groups.js
+  // (test/config.test.js checks both directions).
+  //   */5   weather (NWS obs + alerts) and tides (CO-OPS)
+  //   */15  buoys (NDBC)
+  //   7 */6 climate (ONI, weekly Niño, monthly mean sea level)
+  "triggers": { "crons": ["*/5 * * * *", "*/15 * * * *", "7 */6 * * *"] },
+
+  "vars": {
+    // api.weather.gov asks clients to identify themselves. Override at deploy
+    // time with the NWS_USER_AGENT repository variable, e.g. "(my-site, you@example.com)".
+    "NWS_USER_AGENT": "(bay-coast-watch, https://github.com/rishabhbajpailab/jetski)"
+  }
+  // Secrets (set with `wrangler secret put`, or by the deploy workflow):
+  //   REFRESH_TOKEN  enables POST /admin/refresh; unset = endpoint disabled.
+}

@@ -1,0 +1,27 @@
+// bcw-site — the static page (dist/, built by `npm run build`) plus a
+// pass-through of /snapshot, /forecast and /admin to bcw-data.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "bcw-site",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  // Served at https://jetski.glizzy.dev. glizzy.dev's DNS is on Cloudflare, so
+  // `wrangler deploy` creates the DNS record and TLS certificate for this
+  // Custom Domain itself (there must be no existing DNS record for "jetski").
+  "routes": [{ "pattern": "jetski.glizzy.dev", "custom_domain": true }],
+  // One canonical URL: no bcw-site.<account>.workers.dev or preview URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "assets": {
+    "directory": "../../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // Data routes skip the asset lookup and go straight to the Worker.
+    "run_worker_first": ["/snapshot*", "/forecast*", "/admin/*"]
+  },
+
+  "services": [{ "binding": "DATA", "service": "bcw-data" }]
+}
