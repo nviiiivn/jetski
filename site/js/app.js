@@ -1,13 +1,9 @@
 import { baseStyle } from "./map-style.js";
 import { lineChart } from "./charts.js";
-import {
-  TIDE_STATIONS, BUOYS, WX_STATIONS,
-  fetchTideStation, fetchWaterTemp, fetchMonthlyMean, fetchBuoy,
-  fetchObservation, fetchAlerts, fetchPointForecast,
-  fetchONI, fetchWeeklyNino, ensoPhase,
-} from "./data.js";
+import { GROUPS, fetchSnapshot, fetchPointForecast } from "./data.js";
 
-const REFRESH_MS = 10 * 60 * 1000;
+// Snapshots are cached server-side per data type, so polling is cheap.
+const REFRESH_MS = 5 * 60 * 1000;
 const $ = (s) => document.querySelector(s);
 const fmt = (v, d = 1) => (v == null || !isFinite(v) ? "—" : v.toFixed(d));
 const signed = (v, d = 2) => (v == null || !isFinite(v) ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d));
@@ -338,75 +334,16 @@ function setStatus(id, status, error = false) {
 
 // ---------- state + loading ----------
 
-const state = { tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [] };
+const state = { tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [], phase: null, climateStations: [], generated: {} };
 const pt = (lon, lat, props) => ({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: props });
-const settled = (ps) => Promise.allSettled(ps).then((rs) => rs.filter((r) => r.status === "fulfilled").map((r) => r.value));
+const newest = (ts) => Math.max(...ts.filter(Boolean).map(Number));
 
-async function loadTides() {
-  setStatus("tides", "Loading…");
-  const stations = await settled(TIDE_STATIONS.map(fetchTideStation));
-  state.tides = stations;
-  const live = stations.filter((s) => s.latest);
-  map.getSource("tides").setData({
-    type: "FeatureCollection",
-    features: live.map((s) => pt(s.lon, s.lat, {
-      id: s.id, kind: "tide", name: s.name, color: residColor(s.residual),
-      label: `${fmt(s.latest.v, 1)} ft\n${signed(s.residual, 2)}`,
-    })),
-  });
-  setStatus("tides", `${live.length} gauges · CO-OPS · ${timeAgo(Math.max(...live.map((s) => +s.latest.t)))}`);
-}
+// Snapshots start downloading immediately (index.html preloads them), in
+// parallel with MapLibre and the base map; they're applied once the map is ready.
+let pending = Object.fromEntries(GROUPS.map((g) => [g, fetchSnapshot(g)]));
 
-async function loadMonthly() {
-  setStatus("sla", "Loading…");
-  const res = await settled(TIDE_STATIONS.map(async (s) => [s, await fetchMonthlyMean(s)]));
-  const feats = [];
-  for (const [s, series] of res) {
-    state.monthly.set(s.id, series);
-    const last = series.at(-1);
-    if (!last) continue;
-    feats.push(pt(s.lon, s.lat, {
-      id: s.id, kind: "tide", name: s.name, color: slaColor(last.v), v: last.v,
-      label: `${signed(last.v, 2)} ft · ${last.t.toLocaleDateString(undefined, { month: "short" })}`,
-    }));
-  }
-  map.getSource("sla").setData({ type: "FeatureCollection", features: feats });
-  setStatus("sla", `${feats.length} gauges · monthly mean vs 1983–2001`);
-}
-
-async function loadBuoys() {
-  setStatus("buoys", "Loading…");
-  state.buoys = await settled(BUOYS.map(fetchBuoy));
-  map.getSource("buoys").setData({
-    type: "FeatureCollection",
-    features: state.buoys.map((b) => pt(b.lon, b.lat, {
-      id: b.id, kind: "buoy", name: b.name, color: waveColor(b.waveFt),
-      label: b.waveFt != null ? `${fmt(b.waveFt, 0)} ft @ ${fmt(b.period, 0)}s` : `${fmt(b.windKt, 0)} kt`,
-      ...(b.windDir != null ? { rot: (b.windDir + 180) % 360, spd: b.windKt ?? 0 } : {}),
-    })),
-  });
-  setStatus("buoys", `${state.buoys.length} buoys · NDBC · ${timeAgo(Math.max(...state.buoys.map((b) => +b.updated)))}`);
-}
-
-async function loadTemps() {
-  setStatus("sst", "Loading…");
-  const res = await settled(TIDE_STATIONS.map(async (s) => [s, await fetchWaterTemp(s)]));
-  for (const [s, t] of res) state.temps.set(s.id, t);
-  const feats = res.map(([s, t]) => pt(s.lon, s.lat, {
-    id: s.id, kind: "tide", name: s.name, color: tempColor(t.v), label: `${fmt(t.v, 0)}°`,
-  }));
-  // buoy SSTs too (buoys load in parallel; merge whatever has arrived)
-  await buoysReady;
-  for (const b of state.buoys)
-    if (b.sstF != null)
-      feats.push(pt(b.lon, b.lat, { id: b.id, kind: "buoy", name: b.name, color: tempColor(b.sstF), label: `${fmt(b.sstF, 0)}°` }));
-  map.getSource("sst").setData({ type: "FeatureCollection", features: feats });
-  setStatus("sst", `${feats.length} sensors · CO-OPS + NDBC`);
-}
-
-async function loadWx() {
-  setStatus("wx", "Loading…");
-  state.wx = await settled(WX_STATIONS.map(fetchObservation));
+function applyWeather(w) {
+  state.wx = w.stations;
   map.getSource("wx").setData({
     type: "FeatureCollection",
     features: state.wx.map((o) => pt(o.lon, o.lat, {
@@ -415,38 +352,87 @@ async function loadWx() {
       ...(o.windDir != null && o.windMph ? { rot: (o.windDir + 180) % 360, spd: o.windMph * 0.87 } : {}),
     })),
   });
-  setStatus("wx", `${state.wx.length} stations · NWS · ${timeAgo(Math.max(...state.wx.map((o) => +o.t)))}`);
-}
+  setStatus("wx", `${state.wx.length} stations · NWS · ${timeAgo(newest(state.wx.map((o) => o.t)))}`);
 
-async function loadAlerts() {
-  setStatus("alerts", "Loading…");
-  state.alerts = await fetchAlerts();
-  map.getSource("alerts").setData(state.alerts);
-  const n = state.alerts.count;
+  state.alerts = w.alerts;
+  if (!w.alerts) return setStatus("alerts", "Failed to load — will retry", true);
+  map.getSource("alerts").setData(w.alerts);
+  const n = w.alerts.count;
   setStatus("alerts", n ? `${n} active · NWS San Francisco Bay Area` : "No active alerts");
 }
 
-async function loadEnso() {
-  const [oni, weekly] = await Promise.all([fetchONI(), fetchWeeklyNino()]);
-  state.oni = oni;
-  state.weekly = weekly;
-  const last = oni.at(-1), wk = weekly.at(-1);
-  const phase = ensoPhase(last.v);
+function applyTides(t) {
+  state.tides = t.stations;
+  const live = state.tides.filter((s) => s.latest);
+  map.getSource("tides").setData({
+    type: "FeatureCollection",
+    features: live.map((s) => pt(s.lon, s.lat, {
+      id: s.id, kind: "tide", name: s.name, color: residColor(s.residual),
+      label: `${fmt(s.latest.v, 1)} ft\n${signed(s.residual, 2)}`,
+    })),
+  });
+  setStatus("tides", `${live.length} gauges · CO-OPS · ${timeAgo(newest(live.map((s) => s.latest.t)))}`);
+  state.temps = new Map(state.tides.filter((s) => s.temp).map((s) => [s.id, s.temp]));
+}
+
+function applyBuoys(b) {
+  state.buoys = b.buoys;
+  map.getSource("buoys").setData({
+    type: "FeatureCollection",
+    features: state.buoys.map((b) => pt(b.lon, b.lat, {
+      id: b.id, kind: "buoy", name: b.name, color: waveColor(b.waveFt),
+      label: b.waveFt != null ? `${fmt(b.waveFt, 0)} ft @ ${fmt(b.period, 0)}s` : `${fmt(b.windKt, 0)} kt`,
+      ...(b.windDir != null ? { rot: (b.windDir + 180) % 360, spd: b.windKt ?? 0 } : {}),
+    })),
+  });
+  setStatus("buoys", `${state.buoys.length} buoys · NDBC · ${timeAgo(newest(state.buoys.map((b) => b.updated)))}`);
+}
+
+// Water temperature merges CO-OPS gauges (tides snapshot) and buoy SSTs.
+function renderTemps() {
+  const feats = state.tides.filter((s) => s.temp).map((s) => pt(s.lon, s.lat, {
+    id: s.id, kind: "tide", name: s.name, color: tempColor(s.temp.v), label: `${fmt(s.temp.v, 0)}°`,
+  }));
+  for (const b of state.buoys)
+    if (b.sstF != null)
+      feats.push(pt(b.lon, b.lat, { id: b.id, kind: "buoy", name: b.name, color: tempColor(b.sstF), label: `${fmt(b.sstF, 0)}°` }));
+  map.getSource("sst").setData({ type: "FeatureCollection", features: feats });
+  setStatus("sst", feats.length ? `${feats.length} sensors · CO-OPS + NDBC` : "No readings", !feats.length);
+}
+
+function applyClimate(c) {
+  state.monthly = new Map(c.monthly.map((s) => [s.id, s.series]));
+  state.climateStations = c.monthly;
+  const feats = [];
+  for (const s of c.monthly) {
+    const last = s.series.at(-1);
+    if (!last) continue;
+    feats.push(pt(s.lon, s.lat, {
+      id: s.id, kind: "tide", name: s.name, color: slaColor(last.v), v: last.v,
+      label: `${signed(last.v, 2)} ft · ${last.t.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" })}`,
+    }));
+  }
+  map.getSource("sla").setData({ type: "FeatureCollection", features: feats });
+  setStatus("sla", `${feats.length} gauges · monthly mean vs 1983–2001`);
+
+  state.oni = c.oni;
+  state.weekly = c.weekly;
+  state.phase = c.phase;
+  const last = c.oni.at(-1), wk = c.weekly.at(-1);
   const chip = $("#enso-phase");
-  chip.textContent = phase.label;
-  chip.className = "chip " + phase.cls;
-  $("#oni-season").textContent = `${last.season} ${last.year}`;
-  const big = (v) => `<span class="${v >= 0 ? "pos" : "neg"}">${signed(v, 1)}</span><small>°C</small>`;
-  $("#oni-value").innerHTML = big(last.v);
-  $("#n34-value").innerHTML = big(wk.nino34);
-  $("#n12-value").innerHTML = big(wk.nino12);
+  chip.textContent = c.phase.label;
+  chip.className = "chip " + c.phase.cls;
+  const big = (v) => (v == null ? "—" : `<span class="${v >= 0 ? "pos" : "neg"}">${signed(v, 1)}</span><small>°C</small>`);
+  $("#oni-season").textContent = last ? `${last.season} ${last.year}` : "";
+  $("#oni-value").innerHTML = big(last?.v);
+  $("#n34-value").innerHTML = big(wk?.nino34);
+  $("#n12-value").innerHTML = big(wk?.nino12);
   drawOni();
 }
 function drawOni() {
   if (!state.oni.length) return;
-  const since = new Date(Date.UTC(new Date().getUTCFullYear() - 12, 0, 1));
   lineChart($("#oni-chart"), {
-    height: 120, bars: state.oni.filter((d) => d.t >= since), zero: true, band: [-0.5, 0.5],
+    height: 120, bars: state.oni.filter((d) => d.t >= Date.UTC(new Date().getUTCFullYear() - 12, 0, 1)), zero: true, band: [-0.5, 0.5],
     yFormat: (v) => (v > 0 ? "+" : "") + v,
   });
 }
@@ -456,7 +442,7 @@ function renderSignals() {
   const sla = [...state.monthly.values()].map((s) => s.at(-1)?.v).filter((v) => v != null);
   const temps = [...state.temps.values()].map((t) => t.v);
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-  const coastal = state.alerts?.raw?.filter((f) => /coastal|surf|surge|tsunami|gale|storm/i.test(f.properties.event)).length ?? 0;
+  const coastal = Object.values(state.alerts?.items ?? {}).filter((a) => /coastal|surf|surge|tsunami|gale|storm/i.test(a.event)).length;
   const cell = (k, v) => `<div class="signal"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $("#bay-signals").innerHTML =
     cell("Avg tide residual", `${signed(avg(resid), 2)} ft`) +
@@ -466,25 +452,39 @@ function renderSignals() {
     `<p class="explain">El Niño tends to lift Bay Area sea levels, warm coastal water and steer stronger storms in, so king tides plus storm surge flood more easily.</p>`;
 }
 
-let buoysReady;
-async function loadAll() {
+const APPLY = {
+  weather: [applyWeather, ["wx", "alerts"]],
+  tides: [(t) => { applyTides(t); renderTemps(); }, ["tides"]],
+  buoys: [(b) => { applyBuoys(b); renderTemps(); }, ["buoys"]],
+  climate: [applyClimate, ["sla"]],
+};
+
+async function loadAll({ force = false } = {}) {
   const btn = $("#refresh");
   btn.classList.add("spinning");
   $("#updated").textContent = "Updating…";
-  const fail = (id) => (e) => { console.error(id, e); setStatus(id, "Failed to load — will retry", true); };
-  buoysReady = loadBuoys().catch(fail("buoys"));
-  await Promise.allSettled([
-    loadTides().catch(fail("tides")),
-    loadMonthly().catch(fail("sla")),
-    buoysReady,
-    loadTemps().catch(fail("sst")),
-    loadWx().catch(fail("wx")),
-    loadAlerts().catch(fail("alerts")),
-    loadEnso().catch((e) => { console.error(e); $("#enso-phase").textContent = "Unavailable"; }),
-  ]);
+  if (!pending) pending = Object.fromEntries(GROUPS.map((g) => [g, fetchSnapshot(g, { force })]));
+  const jobs = pending;
+  pending = null;
+  await Promise.allSettled(GROUPS.map(async (g) => {
+    const [apply, layers] = APPLY[g];
+    try {
+      const snap = await jobs[g];
+      state.generated[g] = snap.generatedAt;
+      apply(snap);
+    } catch (e) {
+      console.error(g, e);
+      for (const id of layers) setStatus(id, "Failed to load — will retry", true);
+      if (g === "climate") $("#enso-phase").textContent = "Unavailable";
+    }
+  }));
   renderSignals();
   btn.classList.remove("spinning");
-  $("#updated").textContent = `Updated ${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Bay Area`;
+  // "As of" = the oldest snapshot on screen, i.e. the most conservative claim.
+  const asOf = Math.min(...Object.values(state.generated).map(Number));
+  $("#updated").textContent = isFinite(asOf)
+    ? `Data as of ${new Date(asOf).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Bay Area`
+    : "Data unavailable — will retry";
   if (current) current.refresh?.();
 }
 
@@ -538,7 +538,9 @@ function wireInteractions() {
 
 function showTide(id) {
   const render = () => {
-    const s = state.tides.find((x) => x.id === id) || TIDE_STATIONS.find((x) => x.id === id);
+    const s = state.tides.find((x) => x.id === id) ||
+      state.climateStations.find((x) => x.id === id);
+    if (!s) return;
     const temp = state.temps.get(id);
     const monthly = state.monthly.get(id) || [];
     const nextEx = (s.extremes || []).filter((x) => x.t > Date.now()).slice(0, 4);
@@ -639,8 +641,9 @@ async function showPointForecast(lngLat) {
 }
 
 function showAlerts(feats) {
-  const seen = new Set();
-  const list = feats.map((f) => f.properties).filter((p) => !seen.has(p.id) && seen.add(p.id));
+  const ids = [...new Set(feats.map((f) => f.properties.id))];
+  const list = ids.map((id) => ({ id, ...state.alerts?.items?.[id] })).filter((p) => p.event);
+  if (!list.length) return;
   const dt = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "—");
   openDetail(`
     <div class="d-kicker">${list.length} active alert${list.length > 1 ? "s" : ""} here</div>
@@ -661,7 +664,7 @@ map.on("load", () => {
   addDataLayers();
   for (const L of LAYERS) applyOpacity(L);
   loadAll();
-  setInterval(loadAll, REFRESH_MS);
+  setInterval(() => { if (!document.hidden) loadAll(); }, REFRESH_MS);
 });
-$("#refresh").addEventListener("click", () => loadAll());
+$("#refresh").addEventListener("click", () => loadAll({ force: true }));
 window.addEventListener("resize", () => { drawOni(); });

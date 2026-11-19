@@ -1,0 +1,40 @@
+name: Test
+
+# Manual only: Actions → Test → Run workflow (pick any branch).
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run_deploy:
+        description: "Also bundle both Workers with `wrangler deploy --dry-run` (no Cloudflare credentials needed)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit + integration tests
+        run: npm test
+      - name: Build static site
+        run: npm run build
+      - name: Validate Worker bundles and config
+        if: inputs.dry_run_deploy
+        run: npm run check
+      - name: Bundle sizes
+        run: |
+          {
+            echo "### Build output"
+            echo '```'
+            du -h dist/assets/* | sort -h
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

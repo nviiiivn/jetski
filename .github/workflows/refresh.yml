@@ -1,0 +1,51 @@
+name: Refresh data caches
+
+# Force-refresh one or all snapshot groups into the edge cache and R2.
+#
+# Normally you don't need this: Cloudflare Cron Triggers on bcw-data
+# (workers/data/wrangler.jsonc) pre-warm every group on its own schedule:
+#   weather, tides  every 5 min   (ttl 5–6 min)
+#   buoys           every 15 min  (ttl 15 min)
+#   climate         every 6 h     (ttl 6 h)
+# Use this after an upstream outage, after changing station lists, or to
+# check that refreshes work. Requires the REFRESH_TOKEN secret and SITE_URL var.
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: Snapshot group to refresh
+        type: choice
+        options: [all, weather, tides, buoys, climate]
+        default: all
+  # Optional fallback if you'd rather drive refreshes from GitHub than from
+  # Cloudflare crons (GitHub schedules are best-effort and can lag ~10+ min,
+  # so keep these to the slow-moving groups):
+  # schedule:
+  #   - cron: "17 */6 * * *"   # climate
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Refresh
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          GROUP: ${{ inputs.group || 'climate' }}
+        run: |
+          if [ -z "$SITE_URL" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::error::Set the SITE_URL variable and REFRESH_TOKEN secret on the production environment."
+            exit 1
+          fi
+          base="${SITE_URL%/}"
+          curl -sS --fail-with-body --max-time 120 -X POST \
+            -H "Authorization: Bearer $REFRESH_TOKEN" "$base/admin/refresh?group=$GROUP" | tee result.json
+          echo
+          # Fail the run if any group failed to refresh.
+          if grep -q '"ok":false' result.json; then echo "::error::A group failed to refresh"; exit 1; fi
+          { echo '### Snapshot ages'; echo '```json'; curl -sS "$base/snapshot"; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
