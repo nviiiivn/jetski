@@ -12,7 +12,7 @@ name: Deploy to Cloudflare
 #                                          in workers/site/wrangler.jsonc); used for warm-up + smoke test
 #                    NWS_USER_AGENT        e.g. "(bay-coast-watch, you@example.com)"
 #
-# Put these on a GitHub environment named "production" to add required reviewers.
+# Put these on a GitHub environment named "Prod" to add required reviewers.
 on:
   workflow_dispatch:
     inputs:
@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-production
+  group: deploy-prod
   cancel-in-progress: false
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
-      name: production
+      name: Prod
       url: ${{ vars.SITE_URL || 'https://jetski.glizzy.dev' }}
     env:
       SITE_URL: ${{ vars.SITE_URL || 'https://jetski.glizzy.dev' }}

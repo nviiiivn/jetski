@@ -85,7 +85,7 @@ Everything runs from GitHub Actions and is **manually triggered** (Actions → *
 | **Deploy to Cloudflare** (`deploy.yml`) | Choose `all`, `data` or `site`. Runs the tests, creates the R2 bucket if it's missing, deploys `bcw-data` and then `bcw-site`, sets the `REFRESH_TOKEN` Worker secret, warms every cache, and smoke-tests each endpoint. |
 | **Refresh data caches** (`refresh.yml`) | Force-refreshes one group or all of them via `POST /admin/refresh`. Has a commented-out `schedule:` if you'd rather drive refreshes from GitHub. |
 
-One-time setup, on a GitHub environment named **`production`** (add required reviewers there if you want a deploy gate):
+One-time setup, on a GitHub environment named **`Prod`** (add required reviewers there if you want a deploy gate):
 
 | Kind | Name | Value |
 | --- | --- | --- |

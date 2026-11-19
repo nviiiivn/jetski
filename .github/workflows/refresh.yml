@@ -31,7 +31,7 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: production
+    environment: Prod
     steps:
       - name: Refresh
         env:
@@ -40,7 +40,7 @@ jobs:
           GROUP: ${{ inputs.group || 'climate' }}
         run: |
           if [ -z "$SITE_URL" ] || [ -z "$REFRESH_TOKEN" ]; then
-            echo "::error::Set the REFRESH_TOKEN secret on the production environment."
+            echo "::error::Set the REFRESH_TOKEN secret on the Prod environment."
             exit 1
           fi
           base="${SITE_URL%/}"
