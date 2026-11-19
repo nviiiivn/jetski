@@ -8,7 +8,8 @@ name: Refresh data caches
 #   buoys           every 15 min  (ttl 15 min)
 #   climate         every 6 h     (ttl 6 h)
 # Use this after an upstream outage, after changing station lists, or to
-# check that refreshes work. Requires the REFRESH_TOKEN secret and SITE_URL var.
+# check that refreshes work. Requires the REFRESH_TOKEN secret; SITE_URL
+# defaults to https://jetski.glizzy.dev.
 on:
   workflow_dispatch:
     inputs:
@@ -34,12 +35,12 @@ jobs:
     steps:
       - name: Refresh
         env:
-          SITE_URL: ${{ vars.SITE_URL }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://jetski.glizzy.dev' }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           GROUP: ${{ inputs.group || 'climate' }}
         run: |
           if [ -z "$SITE_URL" ] || [ -z "$REFRESH_TOKEN" ]; then
-            echo "::error::Set the SITE_URL variable and REFRESH_TOKEN secret on the production environment."
+            echo "::error::Set the REFRESH_TOKEN secret on the production environment."
             exit 1
           fi
           base="${SITE_URL%/}"

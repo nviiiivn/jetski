@@ -10,9 +10,11 @@
   "preview_urls": false,
   "observability": { "enabled": true },
 
-  // Durable snapshot store. Cron Triggers write here; every data centre reads
-  // it on an edge-cache miss. Create once: `wrangler r2 bucket create bcw-snapshots`
-  // (the deploy workflow does this for you).
+  // Durable snapshot store. The Worker writes and reads it itself through this
+  // binding (env.SNAPSHOTS); nothing needs uploading and the bucket stays
+  // private. Create it once (dashboard, or `wrangler r2 bucket create
+  // bcw-snapshots`; the deploy workflow does this if it's missing). If you
+  // created it with a jurisdiction (e.g. EU), add "jurisdiction": "eu" below.
   "r2_buckets": [
     { "binding": "SNAPSHOTS", "bucket_name": "bcw-snapshots", "preview_bucket_name": "bcw-snapshots-preview" }
   ],

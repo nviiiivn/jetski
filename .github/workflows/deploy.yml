@@ -2,11 +2,14 @@ name: Deploy to Cloudflare
 
 # Manual only: Actions → Deploy to Cloudflare → Run workflow.
 #
-# Required secrets:  CLOUDFLARE_API_TOKEN  (Workers Scripts:Edit, Workers R2 Storage:Edit)
+# Required secrets:  CLOUDFLARE_API_TOKEN  "Edit Cloudflare Workers" template, scoped to this
+#                                          account and the glizzy.dev zone (covers Workers
+#                                          Scripts, Workers R2 Storage, Workers Routes, Zone read)
 #                    CLOUDFLARE_ACCOUNT_ID
 # Optional secret:   REFRESH_TOKEN         enables POST /admin/refresh (used to warm caches below
 #                                          and by the "Refresh data caches" workflow)
-# Optional vars:     SITE_URL              e.g. https://bcw-site.<account>.workers.dev, for warm-up + smoke test
+# Optional vars:     SITE_URL              defaults to https://jetski.glizzy.dev (the Custom Domain
+#                                          in workers/site/wrangler.jsonc); used for warm-up + smoke test
 #                    NWS_USER_AGENT        e.g. "(bay-coast-watch, you@example.com)"
 #
 # Put these on a GitHub environment named "production" to add required reviewers.
@@ -36,8 +39,9 @@ jobs:
     timeout-minutes: 15
     environment:
       name: production
-      url: ${{ vars.SITE_URL }}
+      url: ${{ vars.SITE_URL || 'https://jetski.glizzy.dev' }}
     env:
+      SITE_URL: ${{ vars.SITE_URL || 'https://jetski.glizzy.dev' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       DEPLOY_DATA: ${{ inputs.target == 'all' || inputs.target == 'data' }}
@@ -101,23 +105,22 @@ jobs:
       # ---------- warm-up + smoke test ----------
 
       - name: Warm snapshot caches
-        if: env.DEPLOY_DATA == 'true' && vars.SITE_URL != ''
+        if: env.DEPLOY_DATA == 'true'
         env:
-          SITE_URL: ${{ vars.SITE_URL }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
         run: |
           [ -z "$REFRESH_TOKEN" ] && { echo "No REFRESH_TOKEN; the cron triggers will warm caches within 5 minutes."; exit 0; }
+          for i in 1 2 3 4 5 6; do curl -sS --fail -o /dev/null "${SITE_URL%/}/" && break; echo "waiting for $SITE_URL ..."; sleep 20; done
           curl -sS --fail-with-body --max-time 120 -X POST \
             -H "Authorization: Bearer $REFRESH_TOKEN" "${SITE_URL%/}/admin/refresh?group=all" | tee refresh.json
           echo
 
       - name: Smoke test
-        if: vars.SITE_URL != ''
-        env:
-          SITE_URL: ${{ vars.SITE_URL }}
         run: |
           set -e
           base="${SITE_URL%/}"
+          # A brand-new Custom Domain can take a minute for DNS + certificate.
+          for i in 1 2 3 4 5 6; do curl -sS --fail -o /dev/null "$base/" && break; echo "waiting for $base ..."; sleep 20; done
           curl -sS --fail -o /dev/null -w "/ %{http_code}\n" "$base/"
           for g in weather tides buoys climate; do
             curl -sS --fail --max-time 60 -o /dev/null -w "/snapshot/$g %{http_code} %{size_download}B\n" "$base/snapshot/$g"

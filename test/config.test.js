@@ -54,5 +54,8 @@ test("site worker binds to the data worker and serves dist/", () => {
 
 test("site and deploy workflow agree on names", () => {
   const deploy = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  const refreshWf = readFileSync(new URL("../.github/workflows/refresh.yml", import.meta.url), "utf8");
+  const domain = siteCfg.routes.find((r) => r.custom_domain).pattern;
+  for (const wf of [deploy, refreshWf]) assert.ok(wf.includes(`'https://${domain}'`), `workflows default SITE_URL to ${domain}`);
   assert.ok(deploy.includes(dataCfg.r2_buckets[0].bucket_name), "deploy.yml creates the R2 bucket");
 });

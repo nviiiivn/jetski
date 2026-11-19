@@ -89,13 +89,17 @@ One-time setup, on a GitHub environment named **`production`** (add required rev
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| secret | `CLOUDFLARE_API_TOKEN` | API token with *Workers Scripts: Edit* and *Workers R2 Storage: Edit* |
+| secret | `CLOUDFLARE_API_TOKEN` | API token from the **Edit Cloudflare Workers** template, scoped to your account and the `glizzy.dev` zone |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | your account ID |
 | secret | `REFRESH_TOKEN` | any long random string (optional; enables `/admin/refresh`) |
-| variable | `SITE_URL` | e.g. `https://bcw-site.<subdomain>.workers.dev` (optional; for warm-up and smoke test) |
+| variable | `SITE_URL` | optional; defaults to `https://jetski.glizzy.dev` |
 | variable | `NWS_USER_AGENT` | e.g. `(bay-coast-watch, you@example.com)`. api.weather.gov asks clients to identify themselves |
 
-Cache refresh is config as code: the **Cron Triggers** in `workers/data/wrangler.jsonc` go live with every deploy of `bcw-data`. Three triggers are used, within the free plan's limit of five. To serve the site on your own domain, uncomment `routes` in `workers/site/wrangler.jsonc`.
+Cache refresh is config as code: the **Cron Triggers** in `workers/data/wrangler.jsonc` go live with every deploy of `bcw-data`. Three triggers are used, within the free plan's limit of five.
+
+The site is served at **https://jetski.glizzy.dev**, a [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) declared in `workers/site/wrangler.jsonc`. Because `glizzy.dev`'s DNS is on Cloudflare, the deploy creates the DNS record and certificate itself; just make sure no DNS record for `jetski` already exists. The `workers.dev` URL is turned off so there's one canonical address.
+
+The R2 bucket needs no setup beyond existing: `bcw-data` reaches it through the `SNAPSHOTS` binding in its wrangler config, and writes the snapshots itself (on the first request and on every cron). It starts empty, stays private, and needs no public access or uploads.
 
 From a laptop instead: `npx wrangler login`, `npx wrangler r2 bucket create bcw-snapshots`, `npm run deploy:data`, `npm run deploy:site`.
 
