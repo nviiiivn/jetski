@@ -2,7 +2,6 @@
 // geometry for alerts that have no polygon of their own) and point forecasts.
 
 import { round } from "../../../../shared/series.js";
-import { ALERT_SENDER } from "../../../../shared/stations.js";
 import { simplifyGeometry } from "../geo.js";
 
 const API = "https://api.weather.gov";
@@ -48,9 +47,9 @@ export function alertKind(event = "") {
  *             polygon, or { zone } pointing into `zones`. The browser expands
  *             these into a GeoJSON FeatureCollection.
  */
-export async function fetchAlerts(up) {
-  const j = await up.json(`${API}/alerts/active?area=CA,PZ`);
-  const mine = j.features.filter((f) => ALERT_SENDER.test(f.properties.senderName || ""));
+export async function fetchAlerts(up, region) {
+  const j = await up.json(`${API}/alerts/active?area=${region.alertArea}`);
+  const mine = j.features.filter((f) => region.alertSender.test(f.properties.senderName || ""));
   const rank = { statement: 0, advisory: 1, watch: 2, warning: 3 };
   const items = {};
   const zoneUrls = new Set();

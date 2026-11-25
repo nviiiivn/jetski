@@ -1,7 +1,7 @@
 // A quiet, dark basemap built on the OpenStreetMap US Tileservice
 // (OpenMapTiles schema). Kept deliberately low-contrast so data layers pop.
 
-const C = {
+const DARK = {
   land: "#14181f",
   water: "#0b1a29",
   waterLine: "#16324a",
@@ -23,7 +23,7 @@ export const ATTRIBUTION =
   '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> ' +
   '<a href="https://openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a>';
 
-export const baseStyle = {
+const styleFor = (C) => ({
   version: 8,
   name: "Bay Coast Dark",
   glyphs: "https://tiles.openstreetmap.us/fonts/{fontstack}/{range}.pbf",
@@ -198,4 +198,24 @@ export const baseStyle = {
       },
     },
   ],
+});
+
+// tides.alola.lol (2026-11-24): her rule, every page opens light unless the viewer picks dark.
+const LIGHT = {
+  land: "#f3f1ec",
+  water: "#bcd7ec",
+  waterLine: "#8fb8d8",
+  park: "#dcebd4",
+  wood: "#d3e5cc",
+  urban: "#ebe8e2",
+  road: "#ffffff",
+  roadMajor: "#fbf3e1",
+  motorway: "#f3d9a4",
+  boundary: "#b4aec2",
+  label: "#5d6877",
+  labelStrong: "#27303b",
+  waterLabel: "#3f72a0",
+  halo: "#ffffff",
 };
+export const baseStyle = styleFor(DARK);
+export const lightStyle = { ...styleFor(LIGHT), name: "Coast Watch Light" };

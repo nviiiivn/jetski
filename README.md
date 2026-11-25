@@ -1,3 +1,31 @@
+# Coast Watch (tides.alola.lol)
+
+A fork of [rishabhbajpailab/jetski](https://github.com/rishabhbajpailab/jetski) ("Bay Coast Watch"), running at
+**https://tides.alola.lol** on a Raspberry Pi instead of Cloudflare Workers. What this fork adds:
+
+- **Regions:** SF Bay Area, Seattle / Puget Sound, Los Angeles / SoCal, Miami / South Florida (`shared/stations.js`,
+  `?region=` in the address, picker in the header). Every station id was checked live on 2026-11-24.
+- **Timeline:** 1H · 6H · 24H · 3D at the bottom sets how far back every chart, "highest water" and "highest surge"
+  figure, flood report and news list looks (tide gauges now fetch 3 days back).
+- **Flooding:**
+  - Flood map layer: NOAA's sea-level-rise inundation tiles, shaded at the water height the nearest tide gauge reads
+    now, the highest it is expected to reach in 48 h, or a fixed height.
+  - Tide gauges carry NOAA/NWS minor, moderate and major flood levels and MHHW; gauges at flood level are ringed red.
+  - Flood reports: NWS Local Storm Reports of flooding (via Iowa Environmental Mesonet) and, for SF, 311 "sewer
+    flooding" requests (DataSF).
+  - Gauges in flood: NOAA National Water Prediction Service gauges at action stage or flooding, now or forecast.
+  - Flooding in the news: Google News search per region.
+  - Clicking anywhere answers "Flooding here?": alerts covering the spot, reports near it, and NOAA's ground-height
+    map against the nearest gauge's water level and 48 h forecast.
+- **Light theme by default**, dark on the sun button (or a dark `alola-theme` cookie).
+- **Self-hosted:** `server/serve.mjs` runs the unchanged data Worker in Node (in-memory cache instead of the Workers
+  Cache API, files under `.data/` instead of R2, refresh-on-request instead of Cron Triggers) and serves `dist/`.
+  `npm install && npm run build && npm start` (listens on 127.0.0.1:8970; put a reverse proxy in front).
+
+The original README follows.
+
+---
+
 # Bay Coast Watch
 
 A small, map-first dashboard for following **El Niño and its effects on the San Francisco Bay Area coast**: tides and storm surge, monthly sea-level anomalies, coastal water temperature, offshore waves, and NWS weather alerts. Everything comes from free public U.S. government data.

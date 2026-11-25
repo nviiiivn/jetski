@@ -14,13 +14,13 @@
 //   buoys    NDBC realtime2 files update every 10–60 min per buoy.
 //   climate  ONI and monthly sea level are monthly, Niño weekly.
 
-import { TIDE_STATIONS, BUOYS, WX_STATIONS } from "../../../shared/stations.js";
 import { encodeSeries } from "../../../shared/series.js";
 import { settled } from "./upstream.js";
 import { fetchTideStation, fetchMonthlyMean } from "./sources/coops.js";
 import { fetchBuoy } from "./sources/ndbc.js";
 import { fetchObservation, fetchAlerts } from "./sources/nws.js";
 import { fetchONI, fetchWeekly, ensoPhase } from "./sources/cpc.js";
+import { fetchLsr, fetchSf311, fetchRivers, fetchNews } from "./sources/floods.js";
 
 const MIN = 60;
 const HOUR = 60 * MIN;
@@ -43,10 +43,10 @@ export const GROUPS = {
     ttl: 5 * MIN,
     stale: 30 * MIN,
     cron: CRON.FIVE_MIN,
-    async build(up) {
+    async build(up, region) {
       const [obs, alerts] = await Promise.all([
-        settled(WX_STATIONS.map((id) => fetchObservation(up, id))),
-        fetchAlerts(up).catch((e) => ({ error: String(e.message || e) })),
+        settled(region.wx.map((id) => fetchObservation(up, id))),
+        fetchAlerts(up, region).catch((e) => ({ error: String(e.message || e) })),
       ]);
       if (!obs.ok.length && alerts.error) throw new Error(`weather: ${alerts.error}`);
       return {
@@ -61,8 +61,8 @@ export const GROUPS = {
     ttl: 6 * MIN,
     stale: 30 * MIN,
     cron: CRON.FIVE_MIN,
-    async build(up) {
-      const r = await settled(TIDE_STATIONS.map((s) => fetchTideStation(up, s)));
+    async build(up, region) {
+      const r = await settled(region.tides.map((s) => fetchTideStation(up, s)));
       return { stations: requireSome("tides", r), errors: r.errors };
     },
   },
@@ -71,8 +71,8 @@ export const GROUPS = {
     ttl: 15 * MIN,
     stale: 2 * HOUR,
     cron: CRON.QUARTER_HOUR,
-    async build(up) {
-      const r = await settled(BUOYS.map((b) => fetchBuoy(up, b)));
+    async build(up, region) {
+      const r = await settled(region.buoys.map((b) => fetchBuoy(up, b)));
       return { buoys: requireSome("buoys", r), errors: r.errors };
     },
   },
@@ -81,11 +81,11 @@ export const GROUPS = {
     ttl: 6 * HOUR,
     stale: 7 * DAY,
     cron: CRON.SIX_HOURLY,
-    async build(up, now = Date.now()) {
+    async build(up, region, now = Date.now()) {
       const [oni, weekly, monthly] = await Promise.all([
         fetchONI(up).catch(() => []),
         fetchWeekly(up).catch(() => []),
-        settled(TIDE_STATIONS.map(async (s) => ({ ...s, series: await fetchMonthlyMean(up, s, now) }))),
+        settled(region.tides.map(async (s) => ({ ...s, series: await fetchMonthlyMean(up, s, now) }))),
       ]);
       if (!oni.length && !weekly.length && !monthly.ok.length) throw new Error("climate: all upstream requests failed");
       const since = Date.UTC(new Date(now).getUTCFullYear() - 13, 0, 1);
@@ -96,6 +96,32 @@ export const GROUPS = {
         weekly: weekly.slice(-12),
         monthly: monthly.ok.map(({ series, ...s }) => ({ ...s, series: encodeSeries(series, 3) })),
         errors: monthly.errors,
+      };
+    },
+  },
+
+  // tides.alola.lol: reports of actual flooding + river gauges + flood news (sources/floods.js).
+  floods: {
+    ttl: 10 * MIN,
+    stale: 1 * HOUR,
+    cron: CRON.QUARTER_HOUR,
+    async build(up, region) {
+      const err = (name) => (e) => ({ error: `${name}: ${String(e?.message || e)}` });
+      const [lsr, sf311, rivers, news] = await Promise.all([
+        fetchLsr(up, region).catch(err("NWS reports")),
+        region.sf311 ? fetchSf311(up).catch(err("SF 311")) : [],
+        fetchRivers(up, region).catch(err("river gauges")),
+        fetchNews(up, region).catch(err("news")),
+      ]);
+      const parts = { lsr, sf311, rivers, news };
+      const errors = Object.values(parts).filter((p) => p && p.error).map((p) => p.error);
+      if (errors.length === 4) throw new Error(`floods: ${errors.join("; ")}`);
+      const ok = (p, empty) => (p && p.error ? empty : p);
+      return {
+        reports: [...ok(lsr, []), ...ok(sf311, [])].sort((a, b) => b.t - a.t),
+        rivers: ok(rivers, { watched: 0, flooding: [] }),
+        news: ok(news, []),
+        errors,
       };
     },
   },
