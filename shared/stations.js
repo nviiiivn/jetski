@@ -63,6 +63,25 @@ const SFBAY = {
     { id: "ELXC1", name: "Elkhorn Slough Reserve (wind)", lon: -121.738, lat: 36.815 },
     { id: "MEYC1", name: "Monterey harbor (water temp)", lon: -121.889, lat: 36.605 },
   ],
+  // USGS creek / river / canal / Bay gauges near the cities (sources/usgs.js), added 2026-11-24. Positions and ids
+  // from USGS Water Services; each was reporting within the last 3 hours when added.
+  gauges: [
+    { id: "373025122065901", name: "SF Bay at old Dumbarton Bridge, Newark", lon: -122.1164, lat: 37.5069 },
+    { id: "372750122012701", name: "Coyote Creek near Alviso", lon: -122.0242, lat: 37.4639 },
+    { id: "11172175", name: "Coyote Creek at Hwy 237, Milpitas", lon: -121.9275, lat: 37.4222 },
+    { id: "11169025", name: "Guadalupe River at Hwy 101, San Jose", lon: -121.933, lat: 37.3738 },
+    { id: "11169500", name: "Saratoga Creek, Saratoga", lon: -122.0394, lat: 37.2544 },
+    { id: "11164500", name: "San Francisquito Creek at Stanford University", lon: -122.1894, lat: 37.4233 },
+    { id: "11180700", name: "Alameda Creek flood channel, Union City", lon: -122.0483, lat: 37.5858 },
+    { id: "11181000", name: "San Lorenzo Creek, Hayward", lon: -122.0644, lat: 37.6855 },
+    { id: "11181040", name: "San Lorenzo Creek, San Lorenzo", lon: -122.14, lat: 37.6841 },
+    { id: "11182500", name: "San Ramon Creek, San Ramon", lon: -121.9946, lat: 37.7729 },
+    { id: "11455740", name: "Suisun Slough near Benicia", lon: -122.0814, lat: 38.1238 },
+    { id: "11459500", name: "Novato Creek, Novato", lon: -122.5799, lat: 38.1077 },
+    { id: "11460000", name: "Corte Madera Creek, Ross", lon: -122.5569, lat: 37.9629 },
+    { id: "11460151", name: "Redwood Creek, Muir Beach", lon: -122.5786, lat: 37.8661 },
+    { id: "11162630", name: "Pilarcitos Creek, Half Moon Bay", lon: -122.4341, lat: 37.4666 },
+  ],
   wx: ["KSTS", "KAPC", "KDVO", "KCCR", "KSFO", "KOAK", "KHWD", "KLVK", "KHAF", "KPAO", "KNUQ", "KSJC", "KMRY"],
 };
 
@@ -116,6 +135,24 @@ const PUGET = {
     { id: "DESW1", name: "Destruction Island (wind)", lon: -124.485, lat: 47.675 },
     { id: "WPTW1", name: "Westport (wind, water temp)", lon: -124.105, lat: 46.904 },
     { id: "46099", name: "OOI Westport Shelf buoy", lon: -124.567, lat: 46.988 },
+  ],
+  // USGS creek / river / canal / Bay gauges near the cities (sources/usgs.js), added 2026-11-24. Positions and ids
+  // from USGS Water Services; each was reporting within the last 3 hours when added.
+  gauges: [
+    { id: "12113415", name: "Duwamish River at E Marginal Way, Seattle", lon: -122.2881, lat: 47.5005 },
+    { id: "12113390", name: "Duwamish River, Tukwila", lon: -122.2587, lat: 47.479 },
+    { id: "12113350", name: "Green River, Tukwila", lon: -122.2485, lat: 47.4651 },
+    { id: "12113346", name: "Springbrook Creek, Renton", lon: -122.2276, lat: 47.4312 },
+    { id: "12119000", name: "Cedar River, Renton", lon: -122.2035, lat: 47.4826 },
+    { id: "12121600", name: "Issaquah Creek near the mouth, Issaquah", lon: -122.0479, lat: 47.5523 },
+    { id: "12101500", name: "Puyallup River, Puyallup", lon: -122.3271, lat: 47.2084 },
+    { id: "12101470", name: "Puyallup River at 5th St, Puyallup", lon: -122.2873, lat: 47.1987 },
+    { id: "12100500", name: "White River near Sumner", lon: -122.2437, lat: 47.2501 },
+    { id: "12091100", name: "Flett Creek, Tacoma", lon: -122.5201, lat: 47.1889 },
+    { id: "12080010", name: "Deschutes River, Tumwater / Olympia", lon: -122.9032, lat: 47.0117 },
+    { id: "12155500", name: "Snohomish River, Snohomish", lon: -122.0987, lat: 47.911 },
+    { id: "12150800", name: "Snohomish River near Monroe", lon: -122.0485, lat: 47.8309 },
+    { id: "12048000", name: "Dungeness River near Sequim", lon: -123.1327, lat: 48.0143 },
   ],
   wx: ["KSEA", "KBFI", "KRNT", "KPAE", "KTIW", "KPWT", "KOLM", "KBLI", "KNUW", "KFHR", "KCLM", "KUIL"],
 };
@@ -198,6 +235,22 @@ const SFLA = {
     { id: "JBYF1", name: "Joe Bay, Everglades NP (level, water temp)", lon: -80.541, lat: 25.224 },
     { id: "TRRF1", name: "Taylor River, Everglades NP (level, water temp)", lon: -80.65, lat: 25.217 },
     { id: "WRBF1", name: "Whipray Basin, Florida Bay (level, wind, water temp)", lon: -80.735, lat: 25.072 },
+  ],
+  // USGS creek / river / canal / Bay gauges near the cities (sources/usgs.js), added 2026-11-24. Positions and ids
+  // from USGS Water Services; each was reporting within the last 3 hours when added.
+  gauges: [
+    { id: "02286366", name: "C-7 Canal at NW 7th Ave, Miami", lon: -80.2095, lat: 25.8542 },
+    { id: "02286352", name: "C-7 Canal at NW 87th Ave, Hialeah", lon: -80.3382, lat: 25.8697 },
+    { id: "02286328", name: "C-8 Canal at NE 135th St, North Miami", lon: -80.195, lat: 25.9002 },
+    { id: "02289500", name: "Tamiami Canal near Coral Gables", lon: -80.3281, lat: 25.7625 },
+    { id: "254157080213800", name: "Snapper Creek, South Miami", lon: -80.3606, lat: 25.6991 },
+    { id: "255026080231300", name: "Snapper Creek canal at NW 74th St, Hialeah", lon: -80.3863, lat: 25.8407 },
+    { id: "0229070854", name: "Black Creek Canal east of US 1, Goulds", lon: -80.3748, lat: 25.57 },
+    { id: "02290709", name: "Black Creek Canal at Old Cutler Rd, Goulds", lon: -80.3596, lat: 25.5599 },
+    { id: "02290769", name: "C-111 canal near Florida City", lon: -80.5248, lat: 25.3272 },
+    { id: "022907647", name: "L-31N canal near West Miami", lon: -80.4976, lat: 25.7463 },
+    { id: "251253080320100", name: "Trout Creek at the mouth near Key Largo", lon: -80.5335, lat: 25.2149 },
+    { id: "262100080190001", name: "Hillsboro Canal near Deerfield Beach", lon: -80.3125, lat: 26.36 },
   ],
   wx: ["KBCT", "KFXE", "KFLL", "KHWO", "KOPF", "KMIA", "KHST", "KMTH", "KEYW", "KAPF", "KRSW"],
 };

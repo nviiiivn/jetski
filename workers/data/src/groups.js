@@ -21,6 +21,7 @@ import { fetchBuoy } from "./sources/ndbc.js";
 import { fetchObservation, fetchAlerts } from "./sources/nws.js";
 import { fetchONI, fetchWeekly, ensoPhase } from "./sources/cpc.js";
 import { fetchLsr, fetchSf311, fetchRivers, fetchNews } from "./sources/floods.js";
+import { fetchGauges } from "./sources/usgs.js";
 
 const MIN = 60;
 const HOUR = 60 * MIN;
@@ -74,6 +75,18 @@ export const GROUPS = {
     async build(up, region) {
       const r = await settled(region.buoys.map((b) => fetchBuoy(up, b)));
       return { buoys: requireSome("buoys", r), errors: r.errors };
+    },
+  },
+
+  // tides.alola.lol 2026-11-24: USGS creek / river / canal / Bay gauges near the cities (sources/usgs.js).
+  // USGS posts every 15 min (some sites hourly); one request per region.
+  gauges: {
+    ttl: 15 * MIN,
+    stale: 2 * HOUR,
+    cron: CRON.QUARTER_HOUR,
+    async build(up, region) {
+      const gauges = await fetchGauges(up, region.gauges || []);
+      return { gauges, errors: [] };
     },
   },
 
