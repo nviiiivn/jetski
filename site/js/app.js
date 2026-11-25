@@ -68,6 +68,8 @@ const DIVERGING = (max) => [[-max, "#2f7fe0"], [-max / 3, "#6fa8e8"], [0, "#8b95
 const RESID_STOPS = DIVERGING(1.0);
 const SLA_STOPS = DIVERGING(0.75);
 const TEMP_STOPS = REGION.tempStops;
+const CHANGE_STOPS = DIVERGING(1.5);
+const changeColor = ramp(CHANGE_STOPS);
 const WAVE_STOPS = [[2, "#2a6f8f"], [6, "#2fb7c4"], [10, "#b8e07a"], [15, "#f2c14e"], [20, "#f0643c"]];
 const residColor = ramp(RESID_STOPS);
 const slaColor = ramp(SLA_STOPS);
@@ -96,6 +98,12 @@ const LAYERS = [
     mapLayers: ["rivers-circle", "rivers-label"], visible: true, opacity: 1,
     legend: () => Object.entries(RIVER_COLORS).map(([k, c]) => `<div class="legend-item"><i style="background:${c}"></i>${k[0].toUpperCase() + k.slice(1)} stage (now or forecast)</div>`).join("") +
       `<div class="legend-note">River, creek and tide gauges NOAA tracks with official flood stages; only the ones at action stage or flooding are drawn.</div>`,
+  },
+  {
+    id: "usgs", title: "Creek, river & canal gauges", meta: "USGS water level", swatch: "#8a63ff",
+    mapLayers: ["usgs-circle", "usgs-label"], visible: true, opacity: 1,
+    legend: () => rampLegend(CHANGE_STOPS, "Change in the last 24 h", "ft", true) +
+      `<div class="legend-note">USGS stream, canal and Bay gauges near the cities. Each gauge reads against its own zero, so compare a gauge with itself (rising or falling), not with its neighbours.</div>`,
   },
   {
     id: "wx", title: "Weather stations", meta: "NWS · airport observations", swatch: "#d7dde7",
@@ -193,7 +201,7 @@ function addArrowImage() {
 
 function addDataLayers() {
   addArrowImage();
-  for (const id of ["alerts", "sla", "tides", "sst", "buoys", "wx", "reports", "rivers"]) map.addSource(id, { type: "geojson", data: empty() });
+  for (const id of ["alerts", "sla", "tides", "sst", "buoys", "wx", "reports", "rivers", "usgs"]) map.addSource(id, { type: "geojson", data: empty() });
   map.addSource("floodmap", {
     type: "raster", tiles: floodTiles(flood.level ?? 0), tileSize: 256, maxzoom: 16,
     attribution: '<a href="https://coast.noaa.gov/slr/" target="_blank" rel="noopener">NOAA sea level maps</a>',
@@ -228,6 +236,13 @@ function addDataLayers() {
         "circle-stroke-width": 2, "circle-stroke-color": INK.stroke, "circle-stroke-opacity": 1,
       } },
     label("rivers-label", "rivers", { layout: { "text-size": 10.5 }, paint: { "text-color": ["get", "color"] } }),
+    { id: "usgs-circle", type: "circle", source: "usgs",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 3.5, 12, 7],
+        "circle-color": ["get", "color"], "circle-opacity": 1,
+        "circle-stroke-width": 1.5, "circle-stroke-color": "#8a63ff", "circle-stroke-opacity": 1,
+      } },
+    label("usgs-label", "usgs", { layout: { "text-size": 10, "text-optional": true }, paint: { "text-color": INK.text } }),
     { id: "reports-circle", type: "circle", source: "reports",
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 4, 12, 7],
@@ -410,7 +425,7 @@ function setStatus(id, status, error = false) {
 
 // ---------- state + loading ----------
 
-const state = { tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [], phase: null, climateStations: [], generated: {}, reports: [], rivers: { watched: 0, flooding: [] }, news: [] };
+const state = { usgs: [], tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [], phase: null, climateStations: [], generated: {}, reports: [], rivers: { watched: 0, flooding: [] }, news: [] };
 const pt = (lon, lat, props) => ({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: props });
 const newest = (ts) => Math.max(...ts.filter(Boolean).map(Number));
 
@@ -620,7 +635,20 @@ function applyFloods(f) {
   renderNews();
 }
 
+function applyUsgs(g) {
+  state.usgs = g.gauges;
+  map.getSource("usgs")?.setData({
+    type: "FeatureCollection",
+    features: state.usgs.filter((x) => x.stageFt != null || x.flowCfs != null).map((x) => pt(x.lon, x.lat, {
+      id: x.id, kind: "usgs", name: x.name, color: changeColor(x.change24hFt),
+      label: x.stageFt != null ? `${signed(x.change24hFt, 1)} ft/24h` : `${fmt(x.flowCfs, 0)} cfs`,
+    })),
+  });
+  setStatus("usgs", `${state.usgs.length} gauges · USGS · ${timeAgo(newest(state.usgs.map((x) => x.updated)))}`);
+}
+
 const APPLY = {
+  gauges: [applyUsgs, ["usgs"]],
   floods: [applyFloods, ["reports", "rivers"]],
   weather: [applyWeather, ["wx", "alerts"]],
   tides: [(t) => { applyTides(t); renderTemps(); updateFloodMap(); openDefaultStation(); }, ["tides"]],
@@ -696,7 +724,7 @@ const hover = new maplibregl.Popup({ closeButton: false, closeOnClick: false, of
 let clickMarker = null;
 
 function wireInteractions() {
-  const clickable = ["reports-circle", "rivers-circle", "wx-circle", "buoys-circle", "tides-circle", "sst-circle", "sla-halo", "alerts-fill"];
+  const clickable = ["reports-circle", "rivers-circle", "usgs-circle", "wx-circle", "buoys-circle", "tides-circle", "sst-circle", "sla-halo", "alerts-fill"];
   for (const id of clickable) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; hover.remove(); });
@@ -718,6 +746,7 @@ function wireInteractions() {
     if (f.layer.id === "alerts-fill") return showPointForecast(e.lngLat, feats.filter((x) => x.layer.id === "alerts-fill"));
     if (p.kind === "report") return showReports(e.lngLat);
     if (p.kind === "river") return showRiver(p.id);
+    if (p.kind === "usgs") return showUsgs(p.id);
     if (p.kind === "tide") return showTide(p.id);
     if (p.kind === "buoy") return showBuoy(p.id);
     if (p.kind === "wx") return showWx(p.id);
@@ -895,6 +924,28 @@ function showReports(lngLat) {
       <div class="d-caption">${new Date(r.t).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${timeAgo(r.t)}${r.source ? ` · ${esc(r.source)}` : ""}</div>
       ${r.remark ? `<div class="d-section d-text">${esc(r.remark)}</div>` : ""}
     </div>`).join("")}`);
+}
+
+function showUsgs(id) {
+  const render = () => {
+    const g = state.usgs.find((x) => x.id === id);
+    if (!g) return;
+    const t0 = Date.now() - rangeMs();
+    const pts = inWindow(g.series.stageFt, t0);
+    const hi = pts.length ? pts.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+    openDetail(`<div class="d-kicker">USGS gauge · ${esc(g.id)}</div><h2 class="d-title">${esc(g.name)}</h2>
+      <div class="d-big">
+        <div class="stat"><div class="stat-label">Water level</div><div class="stat-value">${fmt(g.stageFt, 2)}<small>ft</small></div></div>
+        <div class="stat"><div class="stat-label">24 h change</div><div class="stat-value ${g.change24hFt > 0 ? "pos" : "neg"}">${signed(g.change24hFt, 2)}<small>ft</small></div></div>
+        ${g.flowCfs != null ? `<div class="stat"><div class="stat-label">Flow</div><div class="stat-value">${fmt(g.flowCfs, 0)}<small>cfs</small></div></div>` : ""}
+      </div>
+      <div class="d-caption">Updated ${timeAgo(g.updated)} · level is against this gauge's own zero, not sea level</div>
+      ${hi ? `<ul class="d-list"><li><span class="lbl">Highest · last ${RANGE_LABEL[range]}</span><span>${fmt(hi.v, 2)} ft · ${new Date(hi.t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</span></li></ul>` : ""}
+      <div class="d-section"><h3>Water level · last ${RANGE_LABEL[range]} (ft)</h3><div id="usgs-chart" class="chart-wrap"></div></div>
+      <div class="d-section d-caption"><a href="https://waterdata.usgs.gov/monitoring-location/${encodeURIComponent(g.id)}/" target="_blank" rel="noopener">USGS station page ↗</a></div>`, render);
+    lineChart($("#usgs-chart"), { height: 120, xDomain: [t0, Date.now()], series: [{ data: pts, color: "#8a63ff", area: true }] });
+  };
+  render();
 }
 
 function showRiver(id) {

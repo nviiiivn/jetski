@@ -4,7 +4,7 @@
 
 import { decodeSeries } from "../../shared/series.js";
 
-export const GROUPS = ["weather", "tides", "buoys", "climate", "floods"];
+export const GROUPS = ["weather", "tides", "buoys", "climate", "floods", "gauges"];
 
 // Epoch-ms fields become Dates so the views and charts can use them directly.
 const DATE_KEYS = new Set(["t", "updated", "generatedAt", "forecastT"]);
@@ -36,6 +36,7 @@ const decode = {
   buoys: (d) => ({
     buoys: d.buoys.map((b) => ({ ...b, series: { sstF: decodeSeries(b.series.sstF), waveFt: decodeSeries(b.series.waveFt), levelFt: b.series.levelFt ? decodeSeries(b.series.levelFt) : [] } })),
   }),
+  gauges: (d) => ({ gauges: (d.gauges || []).map((g) => ({ ...g, series: { stageFt: g.series?.stageFt ? decodeSeries(g.series.stageFt) : [] } })) }),
   floods: (d) => ({ reports: d.reports || [], rivers: d.rivers || { watched: 0, flooding: [] }, news: d.news || [], errors: d.errors || [] }),
   climate: (d) => ({
     phase: d.phase,
