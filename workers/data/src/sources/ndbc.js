@@ -41,10 +41,14 @@ export function summarizeBuoy(b, rows) {
     period: lastOf("DPD"),
     windKt: wspd == null ? null : round(wspd * MS_TO_KT, 1),
     windDir: lastOf("WDIR"),
+    // 2026-11-24: water level (NDBC "TIDE", feet, as the station reports it). Only gauge-style stations, such as the
+    // Everglades National Park ones on Florida Bay, send it; null everywhere else.
+    levelFt: round(lastOf("TIDE"), 2),
     updated: rows.at(-1)?.t ?? null,
     series: {
       sstF: encodeSeries(rows.filter((r) => r.WTMP != null).map((r) => ({ t: r.t, v: toF(r.WTMP) })), 1),
       waveFt: encodeSeries(rows.filter((r) => r.WVHT != null).map((r) => ({ t: r.t, v: r.WVHT * M_TO_FT })), 1),
+      levelFt: encodeSeries(rows.filter((r) => r.TIDE != null).map((r) => ({ t: r.t, v: r.TIDE })), 2),
     },
   };
 }

@@ -49,6 +49,19 @@ const SFBAY = {
     { id: "RCMC1", name: "Richmond (wind, water temp)", lon: -122.41, lat: 37.923 },
     { id: "RTYC1", name: "Redwood City (wind)", lon: -122.212, lat: 37.507 },
     { id: "UPBC1", name: "Martinez rail bridge (wind)", lon: -122.121, lat: 38.038 },
+    // added 2026-11-24 (her ask: more gauges and buoys around the cities): NOAA PORTS + IOOS partner + NERRS stations,
+    // each checked live in NDBC realtime2 before adding.
+    { id: "OMHC1", name: "Oakland Middle Harbor (wind)", lon: -122.33, lat: 37.801 },
+    { id: "MZXC1", name: "Martinez-Amorco Pier (wind)", lon: -122.125, lat: 38.035 },
+    { id: "PCOC1", name: "Port Chicago (wind, water temp)", lon: -122.039, lat: 38.056 },
+    { id: "PSBC1", name: "Pittsburg, Suisun Bay (wind)", lon: -121.887, lat: 38.04 },
+    { id: "SFXC1", name: "Rush Ranch, SF Bay Reserve (wind)", lon: -122.026, lat: 38.2 },
+    { id: "PRYC1", name: "Point Reyes (water temp)", lon: -122.977, lat: 37.996 },
+    { id: "BDXC1", name: "Bodega Marine Lab, UC Davis (water temp)", lon: -123.071, lat: 38.317 },
+    { id: "46092", name: "MBARI M1, Monterey Bay (wind)", lon: -122.029, lat: 36.751 },
+    { id: "MLSC1", name: "Moss Landing Marine Labs (wind, water temp)", lon: -121.791, lat: 36.802 },
+    { id: "ELXC1", name: "Elkhorn Slough Reserve (wind)", lon: -121.738, lat: 36.815 },
+    { id: "MEYC1", name: "Monterey harbor (water temp)", lon: -121.889, lat: 36.605 },
   ],
   wx: ["KSTS", "KAPC", "KDVO", "KCCR", "KSFO", "KOAK", "KHWD", "KLVK", "KHAF", "KPAO", "KNUQ", "KSJC", "KMRY"],
 };
@@ -75,6 +88,9 @@ const PUGET = {
     { id: "9449424", name: "Cherry Point", lon: -122.7586, lat: 48.8627 },
     { id: "9444090", name: "Port Angeles", lon: -123.44, lat: 48.125 },
     { id: "9443090", name: "Neah Bay", lon: -124.6016, lat: 48.3707 },
+    // added 2026-11-24 (checked live): the outer-coast gauges
+    { id: "9442396", name: "La Push, Quillayute River", lon: -124.6357, lat: 47.9128 },
+    { id: "9441102", name: "Westport", lon: -124.1051, lat: 46.9043 },
   ],
   buoys: [
     { id: "46088", name: "New Dungeness", lon: -123.179, lat: 48.332 },
@@ -83,6 +99,23 @@ const PUGET = {
     { id: "46041", name: "Cape Elizabeth", lon: -124.741, lat: 47.351 },
     { id: "46211", name: "Grays Harbor", lon: -124.243, lat: 46.857 },
     { id: "WPOW1", name: "West Point (wind only)", lon: -122.435, lat: 47.662 },
+    // added 2026-11-24 (her ask: more gauges and buoys around the cities), each checked live in NDBC realtime2.
+    { id: "TCMW1", name: "Tacoma (wind)", lon: -122.418, lat: 47.276 },
+    { id: "TCNW1", name: "Tacoma (water temp)", lon: -122.413, lat: 47.267 },
+    { id: "BMTW1", name: "Bremerton (wind)", lon: -122.626, lat: 47.562 },
+    { id: "PTWW1", name: "Port Townsend (wind, water temp)", lon: -122.76, lat: 48.111 },
+    { id: "PTAW1", name: "Port Angeles (wind, water temp)", lon: -123.441, lat: 48.125 },
+    { id: "FRDW1", name: "Friday Harbor (wind)", lon: -123.012, lat: 48.545 },
+    { id: "SISW1", name: "Smith Island (wind)", lon: -122.831, lat: 48.321 },
+    { id: "PBFW1", name: "Padilla Bay Reserve (wind)", lon: -122.469, lat: 48.464 },
+    { id: "46118", name: "Bellingham Bay buoy, NANOOS (wind)", lon: -122.576, lat: 48.724 },
+    { id: "CPMW1", name: "Cherry Point (wind)", lon: -122.756, lat: 48.86 },
+    { id: "NEAW1", name: "Neah Bay (water temp)", lon: -124.614, lat: 48.367 },
+    { id: "LAPW1", name: "La Push (wind, water temp)", lon: -124.637, lat: 47.913 },
+    { id: "46119", name: "La Push buoy, NANOOS (wind)", lon: -124.95, lat: 47.967 },
+    { id: "DESW1", name: "Destruction Island (wind)", lon: -124.485, lat: 47.675 },
+    { id: "WPTW1", name: "Westport (wind, water temp)", lon: -124.105, lat: 46.904 },
+    { id: "46099", name: "OOI Westport Shelf buoy", lon: -124.567, lat: 46.988 },
   ],
   wx: ["KSEA", "KBFI", "KRNT", "KPAE", "KTIW", "KPWT", "KOLM", "KBLI", "KNUW", "KFHR", "KCLM", "KUIL"],
 };
@@ -148,11 +181,29 @@ const SFLA = {
     { id: "42095", name: "Satan Shoal", lon: -81.968, lat: 24.407 },
     { id: "LONF1", name: "Long Key (wind only)", lon: -80.864, lat: 24.844 },
     { id: "SMKF1", name: "Sombrero Key (wind only)", lon: -81.109, lat: 24.628 },
+    // added 2026-11-24 (her ask: more gauges and buoys around the cities), each checked live in NDBC realtime2.
+    { id: "VAKF1", name: "Virginia Key, Miami (wind, water temp)", lon: -80.162, lat: 25.731 },
+    { id: "PEGF1", name: "Port Everglades (wind)", lon: -80.116, lat: 26.086 },
+    { id: "LKWF1", name: "Lake Worth Pier (wind, water temp)", lon: -80.034, lat: 26.613 },
+    { id: "VCAF1", name: "Vaca Key, Marathon (wind, water temp)", lon: -81.107, lat: 24.711 },
+    { id: "KYWF1", name: "Key West (wind, water temp)", lon: -81.808, lat: 24.556 },
+    { id: "SANF1", name: "Sand Key (wind)", lon: -81.877, lat: 24.456 },
+    { id: "FMRF1", name: "Fort Myers (wind, water temp)", lon: -81.871, lat: 26.647 },
+    { id: "RKXF1", name: "Rookery Bay Reserve, Naples (wind)", lon: -81.701, lat: 26.05 },
+    // Everglades National Park gauges on Florida Bay, south of Homestead / Key Largo (water level + water temp)
+    { id: "MNBF1", name: "Manatee Bay, Everglades NP (level, water temp)", lon: -80.422, lat: 25.239 },
+    { id: "BWSF1", name: "Blackwater Sound, Key Largo (level, water temp)", lon: -80.438, lat: 25.178 },
+    { id: "LBSF1", name: "Little Blackwater, Everglades NP (level, water temp)", lon: -80.432, lat: 25.214 },
+    { id: "LSNF1", name: "Long Sound, Everglades NP (level, water temp)", lon: -80.457, lat: 25.235 },
+    { id: "JBYF1", name: "Joe Bay, Everglades NP (level, water temp)", lon: -80.541, lat: 25.224 },
+    { id: "TRRF1", name: "Taylor River, Everglades NP (level, water temp)", lon: -80.65, lat: 25.217 },
+    { id: "WRBF1", name: "Whipray Basin, Florida Bay (level, wind, water temp)", lon: -80.735, lat: 25.072 },
   ],
   wx: ["KBCT", "KFXE", "KFLL", "KHWO", "KOPF", "KMIA", "KHST", "KMTH", "KEYW", "KAPF", "KRSW"],
 };
 
-export const REGIONS = { sfbay: SFBAY, puget: PUGET, la: LA, sfla: SFLA };
+// LA is off for now (her call 2026-11-24: "scrub LA for now", maybe back later with NYC). The LA list above is kept.
+export const REGIONS = { sfbay: SFBAY, puget: PUGET, sfla: SFLA };
 export const REGION_IDS = Object.keys(REGIONS);
 export const DEFAULT_REGION = "sfbay";
 export const regionFor = (id) => REGIONS[id] || REGIONS[DEFAULT_REGION];
