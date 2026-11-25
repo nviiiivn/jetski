@@ -103,7 +103,7 @@ const LAYERS = [
     legend: () => `<div class="legend-note">Air temperature °F · arrow shows wind direction (blowing toward), length ∝ speed.</div>`,
   },
   {
-    id: "buoys", title: "Offshore buoys", meta: "NOAA NDBC · waves & wind", swatch: "#2fb7c4",
+    id: "buoys", title: "Buoys & bay sensors", meta: "NOAA NDBC · waves offshore, wind in the Bay", swatch: "#2fb7c4",
     mapLayers: ["buoys-circle", "buoys-arrow", "buoys-label"], visible: true, opacity: 1,
     legend: () => rampLegend(WAVE_STOPS, "Significant wave height", "ft"),
   },
@@ -462,7 +462,7 @@ function applyBuoys(b) {
       ...(b.windDir != null ? { rot: (b.windDir + 180) % 360, spd: b.windKt ?? 0 } : {}),
     })),
   });
-  setStatus("buoys", `${state.buoys.length} buoys · NDBC · ${timeAgo(newest(state.buoys.map((b) => b.updated)))}`);
+  setStatus("buoys", `${state.buoys.filter((b) => b.waveFt != null).length} wave buoys · ${state.buoys.filter((b) => b.waveFt == null).length} wind sensors · NDBC · ${timeAgo(newest(state.buoys.map((b) => b.updated)))}`);
 }
 
 // Water temperature merges CO-OPS gauges (tides snapshot) and buoy SSTs.
@@ -628,6 +628,7 @@ const APPLY = {
   climate: [applyClimate, ["sla"]],
 };
 
+let openedDefault = false;
 async function loadAll({ force = false } = {}) {
   const btn = $("#refresh");
   btn.classList.add("spinning");
@@ -649,6 +650,13 @@ async function loadAll({ force = false } = {}) {
   }));
   renderSignals();
   btn.classList.remove("spinning");
+  if (!openedDefault && state.tides.length) {
+    openedDefault = true;
+    const [kind, id] = (store.get(`tides-station-${REGION.id}`) || "").split(":");
+    if (kind === "buoy" && state.buoys.some((b) => b.id === id)) showBuoy(id);
+    else if (kind === "tide" && state.tides.some((t) => t.id === id)) showTide(id);
+    else showTide(REGION.id === "sfbay" ? "9414750" : state.tides[0].id); // Alameda by default (her ask 2026-11-24)
+  }
   // "As of" = the oldest snapshot on screen, i.e. the most conservative claim.
   const asOf = Math.min(...Object.values(state.generated).map(Number));
   $("#updated").textContent = isFinite(asOf)
@@ -709,6 +717,7 @@ function wireInteractions() {
 }
 
 function showTide(id) {
+  store.set(`tides-station-${REGION.id}`, `tide:${id}`);
   const render = () => {
     const s = state.tides.find((x) => x.id === id) ||
       state.climateStations.find((x) => x.id === id);
@@ -765,6 +774,7 @@ function showTide(id) {
 }
 
 function showBuoy(id) {
+  store.set(`tides-station-${REGION.id}`, `buoy:${id}`);
   const render = () => {
     const b = state.buoys.find((x) => x.id === id);
     if (!b) return;

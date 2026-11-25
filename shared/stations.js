@@ -38,6 +38,17 @@ const SFBAY = {
     { id: "46012", name: "Half Moon Bay", lon: -122.881, lat: 37.356 },
     { id: "46042", name: "Monterey", lon: -122.408, lat: 36.787 },
     { id: "46236", name: "Monterey Canyon Outer", lon: -121.95, lat: 36.759 },
+    // inside the Bay: NOAA SF Bay PORTS weather sensors (wind, gusts, pressure; Alameda + Richmond also water temp).
+    // No wave buoys exist inside the Bay; waves are only measured outside the Golden Gate. Checked live 2026-11-24.
+    { id: "FTPC1", name: "Fort Point, Golden Gate (wind)", lon: -122.466, lat: 37.806 },
+    { id: "PXOC1", name: "SF Pier 1, Ferry Building (wind)", lon: -122.393, lat: 37.798 },
+    { id: "OKXC1", name: "Oakland Berth 34 (wind)", lon: -122.333, lat: 37.811 },
+    { id: "LNDC1", name: "Oakland Berth 67 (wind)", lon: -122.281, lat: 37.795 },
+    { id: "AAMC1", name: "Alameda (wind, water temp)", lon: -122.3, lat: 37.772 },
+    { id: "PPXC1", name: "Point Potrero, Richmond (wind)", lon: -122.365, lat: 37.906 },
+    { id: "RCMC1", name: "Richmond (wind, water temp)", lon: -122.41, lat: 37.923 },
+    { id: "RTYC1", name: "Redwood City (wind)", lon: -122.212, lat: 37.507 },
+    { id: "UPBC1", name: "Martinez rail bridge (wind)", lon: -122.121, lat: 38.038 },
   ],
   wx: ["KSTS", "KAPC", "KDVO", "KCCR", "KSFO", "KOAK", "KHWD", "KLVK", "KHAF", "KPAO", "KNUQ", "KSJC", "KMRY"],
 };
