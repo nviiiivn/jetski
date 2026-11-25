@@ -993,13 +993,17 @@ map.on("load", () => {
 $("#refresh").addEventListener("click", () => loadAll({ force: true }));
 // Theme picker: Alola CSS palettes. Writes the shared `alola-theme` cookie (across *.alola.lol when hosted there),
 // so alola.lol, EMON, TIDO and this page all change together.
+// Shown as the css.alola.lol colour swatches: each square is the theme's background with its accent along the bottom.
 {
-  const sel = $("#theme");
+  const box = $("#theme");
   const now = document.documentElement.dataset.alola || "white";
-  sel.innerHTML = Object.keys(window.ALOLA_THEMES || { white: 1 }).map((n) => `<option value="${n}"${n === now ? " selected" : ""}>${n}</option>`).join("");
-  sel.addEventListener("change", () => {
+  const P = window.ALOLA_THEMES || {};
+  box.innerHTML = Object.keys(P).map((n) => `<button type="button" class="alola-swatch" data-name="${n}" title="${n}" aria-label="Theme: ${n}" aria-pressed="${n === now}" style="--sw-bg:${P[n][0]};--sw-accent:${P[n][6]}"></button>`).join("");
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest(".alola-swatch");
+    if (!b || b.dataset.name === now) return;
     const dom = /(^|\.)alola\.lol$/.test(location.hostname) ? ";domain=.alola.lol" : "";
-    document.cookie = `alola-theme=${encodeURIComponent(sel.value)}${dom};path=/;max-age=31536000;SameSite=Lax`;
+    document.cookie = `alola-theme=${encodeURIComponent(b.dataset.name)}${dom};path=/;max-age=31536000;SameSite=Lax`;
     const q = new URLSearchParams(location.search);
     q.delete("alola");
     location.href = location.pathname + (q.toString() ? `?${q}` : "") + location.hash;
@@ -1032,13 +1036,18 @@ paintTimeline();
 
 // The header grows with the fonts and pickers; keep the layer panel just under it on wide screens.
 function placeLayers() {
+  // The top bar can wrap onto two lines; everything below it is placed from its real height (--bar-h).
   const below = Math.ceil($(".brand").getBoundingClientRect().bottom);
   const wide = window.innerWidth > 820;
-  $("#layers").style.top = wide ? `${below + 12}px` : "";
-  $("#right").style.top = wide ? "" : `${below + 8}px`; // phones: the details sheet starts under the header
+  document.documentElement.style.setProperty("--bar-h", `${below}px`);
+  $("#layers").style.top = "";
+  $("#right").style.top = wide ? "" : `${below}px`; // phones: the details sheet starts under the bar
+  try { map.resize(); } catch {}
 }
 placeLayers();
 window.addEventListener("resize", placeLayers);
+// The bar's height also changes when its text does ("Loading…" -> "Data as of …"), so watch the bar itself.
+if (window.ResizeObserver) new ResizeObserver(() => placeLayers()).observe($(".brand"));
 document.fonts?.ready.then(placeLayers);
 
 document.addEventListener("change", (e) => {

@@ -19,7 +19,7 @@ const regionOf = (url) => REGIONS[url.searchParams.get("region")] || REGIONS[DEF
 const specFor = (env, id, region = REGIONS[DEFAULT_REGION]) => {
   const g = GROUPS[id];
   const up = upstream(env);
-  return { id: `${region.id}/${id}`, ttl: g.ttl, stale: g.stale, build: () => g.build(up, region) };
+  return { id: `${region.id}/${id}`, ttl: g.ttl, stale: g.stale, build: (prev) => g.build(up, region, prev || null) };
 };
 
 function json(body, status = 200, headers = {}) {
