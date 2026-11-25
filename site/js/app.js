@@ -665,7 +665,8 @@ async function loadAll({ force = false } = {}) {
   btn.classList.remove("spinning");
 
   // "As of" = the oldest snapshot on screen, i.e. the most conservative claim.
-  const asOf = Math.min(...Object.values(state.generated).map(Number));
+  // the climate snapshot only changes every few hours, so it doesn't count toward "data as of"
+  const asOf = Math.min(...Object.entries(state.generated).filter(([g]) => g !== "climate").map(([, t]) => Number(t)));
   $("#updated").textContent = isFinite(asOf)
     ? `Data as of ${new Date(asOf).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · ${REGION.name}`
     : "Data unavailable — will retry";
@@ -936,8 +937,20 @@ map.on("load", () => {
   setInterval(() => { if (!document.hidden) loadAll(); }, REFRESH_MS);
 });
 $("#refresh").addEventListener("click", () => loadAll({ force: true }));
-$("#theme").addEventListener("click", () => { store.set("tides-theme", THEME === "light" ? "dark" : "light"); location.reload(); });
-$("#theme").title = THEME === "light" ? "Switch to dark" : "Switch to light";
+// Theme picker: Alola CSS palettes. Writes the shared `alola-theme` cookie (across *.alola.lol when hosted there),
+// so alola.lol, EMON, TIDO and this page all change together.
+{
+  const sel = $("#theme");
+  const now = document.documentElement.dataset.alola || "white";
+  sel.innerHTML = Object.keys(window.ALOLA_THEMES || { white: 1 }).map((n) => `<option value="${n}"${n === now ? " selected" : ""}>${n}</option>`).join("");
+  sel.addEventListener("change", () => {
+    const dom = /(^|\.)alola\.lol$/.test(location.hostname) ? ";domain=.alola.lol" : "";
+    document.cookie = `alola-theme=${encodeURIComponent(sel.value)}${dom};path=/;max-age=31536000;SameSite=Lax`;
+    const q = new URLSearchParams(location.search);
+    q.delete("alola");
+    location.href = location.pathname + (q.toString() ? `?${q}` : "") + location.hash;
+  });
+}
 
 const picker = $("#region");
 picker.innerHTML = Object.values(REGIONS).map((r) => `<option value="${r.id}"${r.id === REGION.id ? " selected" : ""}>${esc(r.name)}</option>`).join("");
@@ -962,6 +975,17 @@ for (const b of document.querySelectorAll("#timeline button")) {
   });
 }
 paintTimeline();
+
+// The header grows with the fonts and pickers; keep the layer panel just under it on wide screens.
+function placeLayers() {
+  const below = Math.ceil($(".brand").getBoundingClientRect().bottom);
+  const wide = window.innerWidth > 820;
+  $("#layers").style.top = wide ? `${below + 12}px` : "";
+  $("#right").style.top = wide ? "" : `${below + 8}px`; // phones: the details sheet starts under the header
+}
+placeLayers();
+window.addEventListener("resize", placeLayers);
+document.fonts?.ready.then(placeLayers);
 
 document.addEventListener("change", (e) => {
   if (e.target?.id !== "flood-level") return;
