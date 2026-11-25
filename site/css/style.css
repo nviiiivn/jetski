@@ -426,3 +426,6 @@ a, #news-list li a { color: var(--accent); }
   #right > .panel { border-width: 0 0 1px 0; }
   #timeline { left: 8px; bottom: calc(30vh + 10px); }
 }
+
+/* map popups in the Alola font (2026-11-25) */
+.maplibregl-popup-content { font-family: var(--font); }

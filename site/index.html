@@ -29,6 +29,9 @@
       window.ALOLA_THEMES = P;
       var q = (location.search.match(/[?&]alola=([a-z]+)/) || [])[1];
       var m = document.cookie.match(/(?:^|; )alola-theme=([^;]+)/), c = m && decodeURIComponent(m[1]);
+      // Before 2026-11-25 EMON saved alola-theme=alola in every browser that opened it, unasked. So "alola" counts
+      // only when someone picked it (alola-theme-picked=alola, written by the pickers); otherwise it means white.
+      if (c === "alola" && !/(?:^|; )alola-theme-picked=alola(?:;|$)/.test(document.cookie)) c = null;
       var name = P[q] ? q : P[c] ? c : "white";
       var v = P[name];
       var hex = function (h) { h = h.replace("#", ""); return h.length === 3 ? h.replace(/(.)/g, "$1$1") : h; };

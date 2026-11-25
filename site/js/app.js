@@ -1004,6 +1004,8 @@ $("#refresh").addEventListener("click", () => loadAll({ force: true }));
     if (!b || b.dataset.name === now) return;
     const dom = /(^|\.)alola\.lol$/.test(location.hostname) ? ";domain=.alola.lol" : "";
     document.cookie = `alola-theme=${encodeURIComponent(b.dataset.name)}${dom};path=/;max-age=31536000;SameSite=Lax`;
+    // marks a real choice of "alola" (see index.html: an unmarked "alola" cookie is EMON's old unasked default)
+    document.cookie = `alola-theme-picked=${b.dataset.name === "alola" ? "alola" : ""}${dom};path=/;max-age=${b.dataset.name === "alola" ? 31536000 : 0};SameSite=Lax`;
     const q = new URLSearchParams(location.search);
     q.delete("alola");
     location.href = location.pathname + (q.toString() ? `?${q}` : "") + location.hash;
