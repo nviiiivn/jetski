@@ -75,7 +75,8 @@ const SNAPSHOTS = {
 
 const env = {
   SNAPSHOTS,
-  NWS_USER_AGENT: "(tides.alola.lol, self-hosted tide and coast dashboard)",
+  // api.weather.gov asks every app to identify itself; set NWS_USER_AGENT to your own site and a contact
+  NWS_USER_AGENT: process.env.NWS_USER_AGENT || "(coast-watch, self-hosted tide and coast dashboard)",
   UPSTREAM_TIMEOUT_MS: process.env.UPSTREAM_TIMEOUT_MS,
 };
 const ctx = { waitUntil: (p) => { Promise.resolve(p).catch((e) => console.error("background:", e?.message || e)); } };

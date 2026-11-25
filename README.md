@@ -52,6 +52,7 @@ in the background when it goes stale. Cached snapshots are kept in `.data/` so a
 | `PORT` | `8970` | Port to listen on |
 | `HOST` | `127.0.0.1` | Address to listen on (`0.0.0.0` to expose it without a proxy) |
 | `UPSTREAM_TIMEOUT_MS` | `15000` | Timeout per upstream request; `40000` suits slow home links |
+| `NWS_USER_AGENT` | `(coast-watch, self-hosted …)` | How the server identifies itself to api.weather.gov; NWS asks for your site name and a contact, e.g. `(tides.example.com, you@example.com)` |
 | `TIDO_DIR` | `../tido` | Folder of the [TIDO](https://github.com/nviiiivn/tido) page, served at `/__tido/` and for any host name starting with `tido.` |
 
 **Reverse proxy (Caddy):**
