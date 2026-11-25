@@ -34,7 +34,7 @@ const decode = {
     stations: d.stations.map((s) => ({ ...s, observed: decodeSeries(s.observed), predicted: decodeSeries(s.predicted) })),
   }),
   buoys: (d) => ({
-    buoys: d.buoys.map((b) => ({ ...b, series: { sstF: decodeSeries(b.series.sstF), waveFt: decodeSeries(b.series.waveFt) } })),
+    buoys: d.buoys.map((b) => ({ ...b, series: { sstF: decodeSeries(b.series.sstF), waveFt: decodeSeries(b.series.waveFt), levelFt: b.series.levelFt ? decodeSeries(b.series.levelFt) : [] } })),
   }),
   floods: (d) => ({ reports: d.reports || [], rivers: d.rivers || { watched: 0, flooding: [] }, news: d.news || [], errors: d.errors || [] }),
   climate: (d) => ({

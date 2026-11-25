@@ -794,15 +794,18 @@ function showBuoy(id) {
         <div class="stat"><div class="stat-label">Period</div><div class="stat-value">${fmt(b.period, 0)}<small>s</small></div></div>
         <div class="stat"><div class="stat-label">Wind</div><div class="stat-value">${fmt(b.windKt, 0)}<small>kt</small></div></div>
         <div class="stat"><div class="stat-label">Sea temp</div><div class="stat-value">${fmt(b.sstF, 1)}<small>°F</small></div></div>
+        ${b.levelFt != null ? `<div class="stat"><div class="stat-label">Water level</div><div class="stat-value">${fmt(b.levelFt, 2)}<small>ft</small></div></div>` : ""}
       </div>
       <div class="d-caption">Updated ${timeAgo(b.updated)}</div>
       <div class="d-section"><h3>Wave height · last ${RANGE_LABEL[range]} (ft)</h3><div id="wave-chart" class="chart-wrap"></div></div>
       <div class="d-section"><h3>Sea surface temperature · last ${RANGE_LABEL[range]} (°F)</h3><div id="sst-chart" class="chart-wrap"></div></div>
+      ${b.series.levelFt?.length ? `<div class="d-section"><h3>Water level · last ${RANGE_LABEL[range]} (ft, as the station reports it)</h3><div id="lvl-chart" class="chart-wrap"></div></div>` : ""}
       <div class="d-section d-caption"><a href="https://www.ndbc.noaa.gov/station_page.php?station=${id}" target="_blank" rel="noopener">NDBC station page ↗</a></div>
     `, render);
     const t0 = Date.now() - rangeMs(), xDomain = [t0, Date.now()];
     lineChart($("#wave-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.waveFt, t0), color: "#2fb7c4", area: true }] });
     lineChart($("#sst-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.sstF, t0), color: "#f2c14e" }] });
+    if ($("#lvl-chart")) lineChart($("#lvl-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.levelFt, t0), color: "#5ec8e5", area: true }] });
   };
   render();
 }
