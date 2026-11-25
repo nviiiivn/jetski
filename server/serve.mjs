@@ -119,11 +119,40 @@ async function serveStatic(pathname, res, method, base = DIST) {
 // ---- server ---------------------------------------------------------------------------------
 const DATA_ROUTES = /^\/(snapshot|forecast)(\/|$)/; // /admin stays off (no token is set)
 
+// Per-visitor rate limit on the data routes, so one runaway script or crawler can't queue thousands of upstream
+// requests (every new /forecast point is a fresh NWS lookup) and stall the page for everyone else. A page load is
+// about 6 requests and the page refreshes every 5 minutes, so these limits are far above normal use. Behind a local
+// proxy (Caddy + Cloudflare Tunnel) the visitor is the Cf-Connecting-Ip / X-Forwarded-For address.
+const LIMITS = { data: Number(process.env.RATE_DATA_PER_MIN) || 240, forecast: Number(process.env.RATE_FORECAST_PER_MIN) || 30 };
+const hits = new Map(); // "kind ip" -> { n, reset }
+const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
+function visitor(req) {
+  const peer = req.socket.remoteAddress || "";
+  if (!LOOPBACK.test(peer)) return peer;
+  const h = req.headers["cf-connecting-ip"] || String(req.headers["x-forwarded-for"] || "").split(",")[0];
+  return String(h || peer).trim();
+}
+function limited(kind, ip) {
+  const now = Date.now(), k = `${kind} ${ip}`;
+  let e = hits.get(k);
+  if (!e || now > e.reset) { e = { n: 0, reset: now + 60_000 }; hits.set(k, e); }
+  return ++e.n > LIMITS[kind];
+}
+setInterval(() => { const now = Date.now(); for (const [k, e] of hits) if (now > e.reset) hits.delete(k); }, 60_000).unref();
+
+// A stray promise rejection must not take the whole site down; log it and keep serving.
+process.on("unhandledRejection", (e) => console.error("unhandled rejection:", e?.stack || e));
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (DATA_ROUTES.test(url.pathname)) {
       if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405).end(); return; }
+      const ip = visitor(req);
+      if (limited("data", ip) || (url.pathname.startsWith("/forecast") && limited("forecast", ip))) {
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "60" }).end('{"error":"too many requests, try again in a minute"}');
+        return;
+      }
       const r = await data.fetch(new Request(url, { method: req.method, headers: { accept: "application/json" } }), env, ctx);
       res.writeHead(r.status, Object.fromEntries(r.headers));
       res.end(req.method === "HEAD" ? undefined : Buffer.from(await r.arrayBuffer()));
