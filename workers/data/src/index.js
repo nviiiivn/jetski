@@ -11,13 +11,15 @@ import { GROUPS, FORECAST, groupsForCron } from "./groups.js";
 import { getSnapshot, refresh, r2Key } from "./cache.js";
 import { upstream } from "./upstream.js";
 import { fetchPointForecast } from "./sources/nws.js";
+import { REGIONS, REGION_IDS, DEFAULT_REGION } from "../../../shared/stations.js";
 
-const BAY = { latMin: 35.5, latMax: 39.5, lonMin: -124.5, lonMax: -120.5 };
+// tides.alola.lol: every snapshot is per region (?region=sfbay|puget|la|sfla).
+const regionOf = (url) => REGIONS[url.searchParams.get("region")] || REGIONS[DEFAULT_REGION];
 
-const specFor = (env, id) => {
+const specFor = (env, id, region = REGIONS[DEFAULT_REGION]) => {
   const g = GROUPS[id];
   const up = upstream(env);
-  return { id, ttl: g.ttl, stale: g.stale, build: () => g.build(up) };
+  return { id: `${region.id}/${id}`, ttl: g.ttl, stale: g.stale, build: (prev) => g.build(up, region, prev || null) };
 };
 
 function json(body, status = 200, headers = {}) {
@@ -44,8 +46,9 @@ function snapshotResponse({ snap, status, error }, spec) {
 async function handleForecast(url, env, ctx) {
   const lat = Number(url.searchParams.get("lat"));
   const lon = Number(url.searchParams.get("lon"));
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < BAY.latMin || lat > BAY.latMax || lon < BAY.lonMin || lon > BAY.lonMax)
-    return json({ error: "lat/lon outside the Bay Area" }, 400);
+  const [[lonMin, latMin], [lonMax, latMax]] = regionOf(url).maxBounds;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < latMin || lat > latMax || lon < lonMin || lon > lonMax)
+    return json({ error: "lat/lon outside the region" }, 400);
   // ~1 km cells: NWS grids are 2.5 km, so nearby clicks share one cache entry.
   const rl = Math.round(lat * 100) / 100;
   const rn = Math.round(lon * 100) / 100;
@@ -58,7 +61,7 @@ async function handleIndex(env) {
   const now = Date.now();
   const out = {};
   await Promise.all(
-    Object.entries(GROUPS).map(async ([id, g]) => {
+    REGION_IDS.flatMap((r) => Object.keys(GROUPS).map((id) => [`${r}/${id}`, GROUPS[id]])).map(async ([id, g]) => {
       const head = await env.SNAPSHOTS?.head(r2Key(id)).catch(() => null);
       const gen = Number(head?.customMetadata?.generatedAt) || null;
       out[id] = { ttl: g.ttl, stale: g.stale, cron: g.cron, generatedAt: gen, ageSeconds: gen ? Math.round((now - gen) / 1000) : null };
@@ -74,15 +77,15 @@ async function handleAdmin(req, url, env) {
   const g = url.searchParams.get("group") || "all";
   const ids = g === "all" ? Object.keys(GROUPS) : g.split(",");
   if (ids.some((id) => !GROUPS[id])) return json({ error: `unknown group: ${g}` }, 400);
-  return json(await refreshGroups(env, ids), 200, { "Cache-Control": "no-store" });
+  return json(await refreshGroups(env, ids, regionOf(url)), 200, { "Cache-Control": "no-store" });
 }
 
-export async function refreshGroups(env, ids) {
+export async function refreshGroups(env, ids, region = REGIONS[DEFAULT_REGION]) {
   const out = {};
   await Promise.all(
     ids.map(async (id) => {
       try {
-        const s = await refresh(env, specFor(env, id));
+        const s = await refresh(env, specFor(env, id, region));
         out[id] = { ok: true, generatedAt: new Date(s.generatedAt).toISOString(), errors: s.data.errors?.length || 0 };
       } catch (e) {
         out[id] = { ok: false, error: String(e?.message || e) };
@@ -103,7 +106,7 @@ export default {
     if (path === "/snapshot") return handleIndex(env);
     const m = path.match(/^\/snapshot\/([a-z]+)$/);
     if (m && GROUPS[m[1]]) {
-      const spec = specFor(env, m[1]);
+      const spec = specFor(env, m[1], regionOf(url));
       return snapshotResponse(await getSnapshot(env, ctx, spec), spec);
     }
     if (path === "/forecast") return handleForecast(url, env, ctx);

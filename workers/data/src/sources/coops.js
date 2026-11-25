@@ -60,19 +60,44 @@ export function normalizeTide(st, { obs, pred, hilo, temp }) {
   };
 }
 
+// tides.alola.lol: what "flooding" means at this gauge. NOAA publishes flood thresholds (NWS ones are what its
+// coastal flood advisories use; NOS ones are NOAA's national high-tide-flooding levels) and tidal datums in the
+// station's own datum (STND); both are turned into feet above MLLW so they compare with the water level series.
+const MD = "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations";
+export async function fetchFloodInfo(up, id) {
+  const [dat, fl] = await Promise.all([
+    up.cachedJSON(`${MD}/${id}/datums.json?units=english`, 7 * 86400).catch(() => null),
+    up.cachedJSON(`${MD}/${id}/floodlevels.json`, 7 * 86400).catch(() => null),
+  ]);
+  const d = Object.fromEntries((dat?.datums || []).map((x) => [x.name, x.value]));
+  if (d.MLLW == null) return {};
+  const rel = (v) => (v == null || !isFinite(v) ? null : round(v - d.MLLW, 2));
+  const pick = fl ? (fl.nws_minor != null ? "NWS" : fl.nos_minor != null ? "NOAA" : null) : null;
+  return {
+    mhhw: rel(d.MHHW),
+    flood: pick && {
+      src: pick,
+      minor: rel(pick === "NWS" ? fl.nws_minor : fl.nos_minor),
+      moderate: rel(pick === "NWS" ? fl.nws_moderate ?? fl.nos_moderate : fl.nos_moderate),
+      major: rel(pick === "NWS" ? fl.nws_major ?? fl.nos_major : fl.nos_major),
+    },
+  };
+}
+
 export async function fetchTideStation(up, st, now = Date.now()) {
   const n = nowRounded(now);
-  const past = new Date(+n - 36 * 3600e3);
+  const past = new Date(+n - 72 * 3600e3); // tides.alola.lol: 3 days back for the 3D timeline (jetski: 36 h)
   const future = new Date(+n + 48 * 3600e3);
   const opt = (p) => coops(up, { station: st.id, ...p }).catch(() => null);
-  const [obs, pred, hilo, temp] = await Promise.all([
+  const [obs, pred, hilo, temp, info] = await Promise.all([
     opt({ product: "water_level", datum: "MLLW", begin_date: coopsDate(past), end_date: coopsDate(n) }),
     opt({ product: "predictions", datum: "MLLW", interval: "6", begin_date: coopsDate(past), end_date: coopsDate(future) }),
     opt({ product: "predictions", datum: "MLLW", interval: "hilo", begin_date: coopsDate(n), end_date: coopsDate(future) }),
     opt({ product: "water_temperature", date: "latest" }),
+    fetchFloodInfo(up, st.id).catch(() => ({})),
   ]);
   if (!obs && !pred) throw new Error(`no CO-OPS data for ${st.id}`);
-  return normalizeTide(st, { obs, pred, hilo, temp });
+  return { ...normalizeTide(st, { obs, pred, hilo, temp }), ...info };
 }
 
 /**

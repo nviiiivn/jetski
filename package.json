@@ -1,16 +1,13 @@
 {
-  "name": "bay-coast-watch",
+  "name": "tides-alola",
   "version": "0.2.0",
-  "description": "Map dashboard for El Niño, tides, coastal water and weather around the San Francisco Bay Area, built on public NOAA / NWS data. Static site + Cloudflare Workers.",
+  "description": "tides.alola.lol: jetski (Bay Coast Watch) run as a Node server on the Pi, with regions and a timeline.",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "node scripts/build-site.mjs",
-    "dev": "npm run build && wrangler dev -c workers/site/wrangler.jsonc -c workers/data/wrangler.jsonc --test-scheduled",
-    "test": "node --test \"test/*.test.js\"",
-    "check": "npm run build && wrangler deploy -c workers/data/wrangler.jsonc --dry-run --outdir .wrangler/dry/data && wrangler deploy -c workers/site/wrangler.jsonc --dry-run --outdir .wrangler/dry/site",
-    "deploy:data": "wrangler deploy -c workers/data/wrangler.jsonc",
-    "deploy:site": "npm run build && wrangler deploy -c workers/site/wrangler.jsonc"
+    "start": "node server/serve.mjs",
+    "test": "node --test \"test/*.test.js\""
   },
   "engines": {
     "node": ">=20"
@@ -18,7 +15,6 @@
   "license": "MIT",
   "devDependencies": {
     "esbuild": "0.28.2",
-    "maplibre-gl": "4.7.1",
-    "wrangler": "4.165.0"
+    "maplibre-gl": "4.7.1"
   }
 }

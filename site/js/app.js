@@ -1,6 +1,31 @@
-import { baseStyle } from "./map-style.js";
+import { baseStyle, lightStyle } from "./map-style.js";
 import { lineChart } from "./charts.js";
-import { GROUPS, fetchSnapshot, fetchPointForecast } from "./data.js";
+import { GROUPS, fetchSnapshot, fetchPointForecast, setRegion } from "./data.js";
+import { REGIONS, DEFAULT_REGION } from "../../shared/stations.js";
+import { FLOOD_LEVELS, floodTiles, snapLevel, nearest, gaugeAboveHigh, inGeometry, spotFloodLevel, distM, miles } from "./floods.js";
+
+// ---------- region + timeline (tides.alola.lol, 2026-11-24) ----------
+// Region: ?region= in the address, else the last one picked in this browser, else SF Bay.
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+};
+const REGION = REGIONS[new URLSearchParams(location.search).get("region")] || REGIONS[store.get("tides-region")] || REGIONS[DEFAULT_REGION];
+setRegion(REGION.id);
+store.set("tides-region", REGION.id);
+
+// Theme: light unless the viewer picked dark here, or picked a dark theme on alola.lol (cookie alola-theme).
+const THEME = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+const INK = THEME === "light"
+  ? { text: "#16202c", halo: "#ffffff", stroke: "#ffffff", wx: "#3b4655", ring: "#16202c", buoyArrow: "#0b7a8c" }
+  : { text: "#e6eaf0", halo: "#0d1117", stroke: "#0d1117", wx: "#d7dde7", ring: "#e6eaf0", buoyArrow: "#9fe6f2" };
+
+// Timeline: how far back every chart and "highest" figure looks.
+const RANGES = { "1h": 1, "6h": 6, "24h": 24, "3d": 72 };
+const RANGE_LABEL = { "1h": "1 hour", "6h": "6 hours", "24h": "24 hours", "3d": "3 days" };
+let range = RANGES[store.get("tides-range")] ? store.get("tides-range") : "24h";
+const rangeMs = () => RANGES[range] * 3600e3;
+const inWindow = (data, t0, t1 = Infinity) => (data || []).filter((d) => +d.t >= t0 && +d.t <= t1);
 
 // Snapshots are cached server-side per data type, so polling is cheap.
 const REFRESH_MS = 5 * 60 * 1000;
@@ -42,7 +67,9 @@ const css = (stops) => `linear-gradient(90deg, ${stops.map(([, c]) => c).join(",
 const DIVERGING = (max) => [[-max, "#2f7fe0"], [-max / 3, "#6fa8e8"], [0, "#8b95a7"], [max / 3, "#f08a6e"], [max, "#ff4d3d"]];
 const RESID_STOPS = DIVERGING(1.0);
 const SLA_STOPS = DIVERGING(0.75);
-const TEMP_STOPS = [[48, "#3d6fe0"], [53, "#2fb7c4"], [57, "#7fcf74"], [61, "#f2c14e"], [66, "#f0643c"]];
+const TEMP_STOPS = REGION.tempStops;
+const CHANGE_STOPS = DIVERGING(1.5);
+const changeColor = ramp(CHANGE_STOPS);
 const WAVE_STOPS = [[2, "#2a6f8f"], [6, "#2fb7c4"], [10, "#b8e07a"], [15, "#f2c14e"], [20, "#f0643c"]];
 const residColor = ramp(RESID_STOPS);
 const slaColor = ramp(SLA_STOPS);
@@ -53,14 +80,38 @@ const ALERT_COLORS = { warning: "#ff5a5f", watch: "#ff9f43", advisory: "#f7d154"
 // ---------- layer registry ----------
 // Listed top → bottom, i.e. first entry draws on top of the map.
 
+const REPORT_COLORS = { coastal: "#00d5ff", flood: "#4d8dff", "311": "#c08cff", other: "#9fb3c8" };
+const RIVER_COLORS = { action: "#f7d154", minor: "#ff9f43", moderate: "#ff5a5f", major: "#d63cff" };
+const reportClass = (r) => (r.kind === "311" ? "311" : /COASTAL|TIDE|SURGE/i.test(r.type) ? "coastal" : /FLOOD/i.test(r.type) ? "flood" : "other");
+
 const LAYERS = [
+  {
+    id: "reports", title: "Flood reports", meta: "NWS spotters, police, public, media" + (REGION.sf311 ? " · SF 311" : ""), swatch: REPORT_COLORS.coastal,
+    mapLayers: ["reports-circle"], visible: true, opacity: 1,
+    legend: () => `<div class="legend-item"><i style="background:${REPORT_COLORS.coastal}"></i>Coastal / tidal flooding (NWS report)</div>
+      <div class="legend-item"><i style="background:${REPORT_COLORS.flood}"></i>Flooding (NWS report)</div>
+      ${REGION.sf311 ? `<div class="legend-item"><i style="background:${REPORT_COLORS["311"]}"></i>SF 311 street / sewer flooding request</div>` : ""}
+      <div class="legend-note">Real sightings, filtered to the timeline at the bottom. NWS reports come from trained spotters, police, the public and TV news.</div>`,
+  },
+  {
+    id: "rivers", title: "Gauges in flood", meta: "NOAA water prediction service", swatch: RIVER_COLORS.minor,
+    mapLayers: ["rivers-circle", "rivers-label"], visible: true, opacity: 1,
+    legend: () => Object.entries(RIVER_COLORS).map(([k, c]) => `<div class="legend-item"><i style="background:${c}"></i>${k[0].toUpperCase() + k.slice(1)} stage (now or forecast)</div>`).join("") +
+      `<div class="legend-note">River, creek and tide gauges NOAA tracks with official flood stages; only the ones at action stage or flooding are drawn.</div>`,
+  },
+  {
+    id: "usgs", title: "Creek, river & canal gauges", meta: "USGS water level", swatch: "#8a63ff",
+    mapLayers: ["usgs-circle", "usgs-label"], visible: true, opacity: 1,
+    legend: () => rampLegend(CHANGE_STOPS, "Change in the last 24 h", "ft", true) +
+      `<div class="legend-note">USGS stream, canal and Bay gauges near the cities. Each gauge reads against its own zero, so compare a gauge with itself (rising or falling), not with its neighbours.</div>`,
+  },
   {
     id: "wx", title: "Weather stations", meta: "NWS · airport observations", swatch: "#d7dde7",
     mapLayers: ["wx-circle", "wx-arrow", "wx-label"], visible: true, opacity: 1,
     legend: () => `<div class="legend-note">Air temperature °F · arrow shows wind direction (blowing toward), length ∝ speed.</div>`,
   },
   {
-    id: "buoys", title: "Offshore buoys", meta: "NOAA NDBC · waves & wind", swatch: "#2fb7c4",
+    id: "buoys", title: "Buoys & bay sensors", meta: "NOAA NDBC · waves offshore, wind in the Bay", swatch: "#2fb7c4",
     mapLayers: ["buoys-circle", "buoys-arrow", "buoys-label"], visible: true, opacity: 1,
     legend: () => rampLegend(WAVE_STOPS, "Significant wave height", "ft"),
   },
@@ -79,10 +130,23 @@ const LAYERS = [
     id: "sla", title: "Sea-level anomaly", meta: "CO-OPS monthly mean vs 1983–2001", swatch: "#ff4d3d",
     mapLayers: ["sla-halo", "sla-label"], visible: true, opacity: 1,
     legend: () => rampLegend(SLA_STOPS, "Last monthly mean sea level vs. MSL epoch", "ft", true) +
-      `<div class="legend-note">El Niño typically raises West Coast sea level by several inches for months at a time.</div>`,
+      `<div class="legend-note">${REGION.id === "sfla" ? "South Florida's monthly mean sea level runs highest in the fall, when king tides and sunny-day flooding peak." : "El Niño typically raises West Coast sea level by several inches for months at a time."}</div>`,
   },
   {
-    id: "alerts", title: "NWS alerts", meta: "Bay Area forecast office", swatch: "#ff9f43",
+    id: "floodmap", title: "Flood map (NOAA)", meta: "land the water reaches at a height", swatch: "#2f7fe0",
+    mapLayers: ["floodmap-raster"], visible: true, opacity: 0.75,
+    legend: () => `<label class="flood-pick">Water height
+        <select id="flood-level">
+          <option value="now">Now (nearest tide gauge)</option>
+          <option value="next">Highest in the next 48 h</option>
+          ${FLOOD_LEVELS.filter((v) => v > 0 && v <= 6).map((v) => `<option value="${v}">${v} ft above normal high tide</option>`).join("")}
+        </select></label>
+      <div class="legend-item"><i style="background:#2f7fe0"></i>Blue: water reaches it (connected to the bay or sea)</div>
+      <div class="legend-item"><i style="background:#3fbf6f"></i>Green: low ground behind a barrier (can flood through drains or gaps)</div>
+      <div class="legend-note">NOAA's sea-level maps, shaded at the chosen height above normal high tide (MHHW). A model of ground height, not a sighting: drains, pumps and levees change what really floods. "Now" uses the tide gauge nearest the middle of the map.</div>`,
+  },
+  {
+    id: "alerts", title: "NWS alerts", meta: REGION.alertOffice, swatch: "#ff9f43",
     mapLayers: ["alerts-fill", "alerts-line"], visible: true, opacity: 1,
     legend: () => Object.entries(ALERT_COLORS)
       .map(([k, c]) => `<div class="legend-item"><i style="background:${c}"></i>${k[0].toUpperCase() + k.slice(1)}</div>`).join(""),
@@ -99,20 +163,21 @@ function rampLegend(stops, title, unit, signedScale) {
 // Base paint opacity for each map layer, scaled by the user's layer opacity.
 const OPACITY_PROPS = {
   fill: ["fill-opacity"], line: ["line-opacity"], circle: ["circle-opacity", "circle-stroke-opacity"],
-  symbol: ["text-opacity", "icon-opacity"],
+  symbol: ["text-opacity", "icon-opacity"], raster: ["raster-opacity"],
 };
 const baseOpacity = {}; // mapLayerId -> { prop: value }
 
 // ---------- map ----------
+const flood = { pick: store.get("tides-floodmap") || "now", level: null };
 
 const map = new maplibregl.Map({
   container: "map",
-  style: baseStyle,
-  center: [-122.38, 37.72],
-  zoom: window.innerWidth < 820 ? 8 : 8.7,
+  style: THEME === "light" ? lightStyle : baseStyle,
+  center: REGION.center,
+  zoom: window.innerWidth < 820 ? REGION.zoom - 0.7 : REGION.zoom,
   minZoom: 5,
   maxZoom: 15,
-  maxBounds: [[-126.5, 34.5], [-118.5, 40.8]],
+  maxBounds: REGION.maxBounds,
   attributionControl: { compact: false },
   hash: true,
 });
@@ -136,7 +201,11 @@ function addArrowImage() {
 
 function addDataLayers() {
   addArrowImage();
-  for (const id of ["alerts", "sla", "tides", "sst", "buoys", "wx"]) map.addSource(id, { type: "geojson", data: empty() });
+  for (const id of ["alerts", "sla", "tides", "sst", "buoys", "wx", "reports", "rivers", "usgs"]) map.addSource(id, { type: "geojson", data: empty() });
+  map.addSource("floodmap", {
+    type: "raster", tiles: floodTiles(flood.level ?? 0), tileSize: 256, maxzoom: 16,
+    attribution: '<a href="https://coast.noaa.gov/slr/" target="_blank" rel="noopener">NOAA sea level maps</a>',
+  });
 
   const label = (id, src, extra = {}) => ({
     id, type: "symbol", source: src,
@@ -145,7 +214,7 @@ function addDataLayers() {
       "text-offset": [0, 1.25], "text-anchor": "top", "text-allow-overlap": false, "text-line-height": 1.15,
       ...extra.layout,
     },
-    paint: { "text-color": "#e6eaf0", "text-halo-color": "#0d1117", "text-halo-width": 1.4, ...extra.paint },
+    paint: { "text-color": INK.text, "text-halo-color": INK.halo, "text-halo-width": 1.4, ...extra.paint },
   });
   const arrow = (id, src, color) => ({
     id, type: "symbol", source: src,
@@ -159,6 +228,27 @@ function addDataLayers() {
   });
 
   const defs = [
+    { id: "floodmap-raster", type: "raster", source: "floodmap", paint: { "raster-opacity": 0.7, "raster-fade-duration": 0 } },
+    { id: "rivers-circle", type: "circle", source: "rivers",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 5, 12, 9],
+        "circle-color": ["get", "color"], "circle-opacity": 1,
+        "circle-stroke-width": 2, "circle-stroke-color": INK.stroke, "circle-stroke-opacity": 1,
+      } },
+    label("rivers-label", "rivers", { layout: { "text-size": 10.5 }, paint: { "text-color": ["get", "color"] } }),
+    { id: "usgs-circle", type: "circle", source: "usgs",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 3.5, 12, 7],
+        "circle-color": ["get", "color"], "circle-opacity": 1,
+        "circle-stroke-width": 1.5, "circle-stroke-color": "#8a63ff", "circle-stroke-opacity": 1,
+      } },
+    label("usgs-label", "usgs", { layout: { "text-size": 10, "text-optional": true }, paint: { "text-color": INK.text } }),
+    { id: "reports-circle", type: "circle", source: "reports",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 4, 12, 7],
+        "circle-color": ["get", "color"], "circle-opacity": 0.95,
+        "circle-stroke-width": 1.5, "circle-stroke-color": "#ffffff", "circle-stroke-opacity": 0.85,
+      } },
     { id: "alerts-fill", type: "fill", source: "alerts",
       paint: { "fill-color": alertColorExpr(), "fill-opacity": 0.07 } },
     { id: "alerts-line", type: "line", source: "alerts",
@@ -175,7 +265,7 @@ function addDataLayers() {
     { id: "sst-circle", type: "circle", source: "sst",
       paint: {
         "circle-radius": 7, "circle-color": ["get", "color"], "circle-opacity": 0.95,
-        "circle-stroke-width": 2, "circle-stroke-color": "#0d1117", "circle-stroke-opacity": 1,
+        "circle-stroke-width": 2, "circle-stroke-color": INK.stroke, "circle-stroke-opacity": 1,
       } },
     label("sst-label", "sst", { layout: { "text-offset": [1.0, 0], "text-anchor": "left" } }),
 
@@ -183,7 +273,7 @@ function addDataLayers() {
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 5, 12, 9],
         "circle-color": ["get", "color"], "circle-opacity": 1,
-        "circle-stroke-width": 2, "circle-stroke-color": "#e6eaf0", "circle-stroke-opacity": 0.9,
+        "circle-stroke-width": ["case", ["get", "flooding"], 4, 2], "circle-stroke-color": ["get", "stroke"], "circle-stroke-opacity": 0.9,
       } },
     label("tides-label", "tides"),
 
@@ -191,17 +281,17 @@ function addDataLayers() {
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 5, 12, 9],
         "circle-color": ["get", "color"], "circle-opacity": 1,
-        "circle-stroke-width": 2, "circle-stroke-color": "#0d1117", "circle-stroke-opacity": 1,
+        "circle-stroke-width": 2, "circle-stroke-color": INK.stroke, "circle-stroke-opacity": 1,
       } },
-    arrow("buoys-arrow", "buoys", "#9fe6f2"),
+    arrow("buoys-arrow", "buoys", INK.buoyArrow),
     label("buoys-label", "buoys"),
 
     { id: "wx-circle", type: "circle", source: "wx",
       paint: {
-        "circle-radius": 4, "circle-color": "#d7dde7", "circle-opacity": 1,
-        "circle-stroke-width": 1.5, "circle-stroke-color": "#0d1117", "circle-stroke-opacity": 1,
+        "circle-radius": 4, "circle-color": INK.wx, "circle-opacity": 1,
+        "circle-stroke-width": 1.5, "circle-stroke-color": INK.stroke, "circle-stroke-opacity": 1,
       } },
-    arrow("wx-arrow", "wx", "#d7dde7"),
+    arrow("wx-arrow", "wx", INK.wx),
     label("wx-label", "wx", { layout: { "text-size": 10.5 } }),
   ];
   for (const d of defs) {
@@ -223,7 +313,8 @@ function applyLayerOrder() {
   for (const L of [...LAYERS].reverse()) for (const id of L.mapLayers) map.moveLayer(id);
 }
 function applyVisibility(L) {
-  for (const id of L.mapLayers) map.setLayoutProperty(id, "visibility", L.visible ? "visible" : "none");
+  const on = L.visible && (L.id !== "floodmap" || flood.level != null);
+  for (const id of L.mapLayers) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
 }
 function applyOpacity(L) {
   for (const id of L.mapLayers)
@@ -334,7 +425,7 @@ function setStatus(id, status, error = false) {
 
 // ---------- state + loading ----------
 
-const state = { tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [], phase: null, climateStations: [], generated: {} };
+const state = { usgs: [], tides: [], temps: new Map(), monthly: new Map(), buoys: [], wx: [], alerts: null, oni: [], weekly: [], phase: null, climateStations: [], generated: {}, reports: [], rivers: { watched: 0, flooding: [] }, news: [] };
 const pt = (lon, lat, props) => ({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: props });
 const newest = (ts) => Math.max(...ts.filter(Boolean).map(Number));
 
@@ -358,7 +449,7 @@ function applyWeather(w) {
   if (!w.alerts) return setStatus("alerts", "Failed to load — will retry", true);
   map.getSource("alerts").setData(w.alerts);
   const n = w.alerts.count;
-  setStatus("alerts", n ? `${n} active · NWS San Francisco Bay Area` : "No active alerts");
+  setStatus("alerts", n ? `${n} active · ${REGION.alertOffice}` : "No active alerts");
 }
 
 function applyTides(t) {
@@ -368,7 +459,8 @@ function applyTides(t) {
     type: "FeatureCollection",
     features: live.map((s) => pt(s.lon, s.lat, {
       id: s.id, kind: "tide", name: s.name, color: residColor(s.residual),
-      label: `${fmt(s.latest.v, 1)} ft\n${signed(s.residual, 2)}`,
+      ...floodState(s),
+      label: `${fmt(s.latest.v, 1)} ft\n${signed(s.residual, 2)}${s.flood?.minor != null && s.latest.v >= s.flood.minor ? "\nFLOODING" : ""}`,
     })),
   });
   setStatus("tides", `${live.length} gauges · CO-OPS · ${timeAgo(newest(live.map((s) => s.latest.t)))}`);
@@ -385,7 +477,7 @@ function applyBuoys(b) {
       ...(b.windDir != null ? { rot: (b.windDir + 180) % 360, spd: b.windKt ?? 0 } : {}),
     })),
   });
-  setStatus("buoys", `${state.buoys.length} buoys · NDBC · ${timeAgo(newest(state.buoys.map((b) => b.updated)))}`);
+  setStatus("buoys", `${state.buoys.filter((b) => b.waveFt != null).length} wave buoys · ${state.buoys.filter((b) => b.waveFt == null).length} wind sensors · NDBC · ${timeAgo(newest(state.buoys.map((b) => b.updated)))}`);
 }
 
 // Water temperature merges CO-OPS gauges (tides snapshot) and buoy SSTs.
@@ -437,28 +529,147 @@ function drawOni() {
   });
 }
 
+// Highest observed water level / residual (observed − predicted) inside the timeline window.
+function peakLevel(s) {
+  const obs = inWindow(s.observed, Date.now() - rangeMs());
+  return obs.length ? obs.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+}
+function peakResidual(s) {
+  const pred = new Map((s.predicted || []).map((d) => [+d.t, d.v]));
+  let best = null;
+  for (const d of inWindow(s.observed, Date.now() - rangeMs())) {
+    const p = pred.get(+d.t);
+    if (p != null && (!best || d.v - p > best.v)) best = { t: d.t, v: d.v - p };
+  }
+  return best;
+}
+
 function renderSignals() {
   const resid = state.tides.filter((s) => s.residual != null).map((s) => s.residual);
   const sla = [...state.monthly.values()].map((s) => s.at(-1)?.v).filter((v) => v != null);
   const temps = [...state.temps.values()].map((t) => t.v);
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-  const coastal = Object.values(state.alerts?.items ?? {}).filter((a) => /coastal|surf|surge|tsunami|gale|storm/i.test(a.event)).length;
+  const coastal = Object.values(state.alerts?.items ?? {}).filter((a) => /coastal|surf|surge|tsunami|gale|storm|flood/i.test(a.event)).length;
+  const peak = state.tides.map((s) => ({ s, p: peakResidual(s) })).filter((x) => x.p).sort((a, b) => b.p.v - a.p.v)[0];
   const cell = (k, v) => `<div class="signal"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $("#bay-signals").innerHTML =
     cell("Avg tide residual", `${signed(avg(resid), 2)} ft`) +
     cell("Avg monthly sea level", `${signed(avg(sla), 2)} ft`) +
-    cell("Avg Bay water temp", `${fmt(avg(temps), 1)} °F`) +
+    cell("Avg water temp", `${fmt(avg(temps), 1)} °F`) +
     cell("Coastal / marine alerts", coastal) +
-    `<p class="explain">El Niño tends to lift Bay Area sea levels, warm coastal water and steer stronger storms in, so king tides plus storm surge flood more easily.</p>`;
+    cell(`Flood reports · last ${RANGE_LABEL[range]}`, state.reports.filter((r) => inRange(r.t)).length) +
+    cell("Gauges at flood level now", (() => { const w = state.tides.filter((s) => s.flood?.minor != null && s.latest); const n = w.filter((s) => s.latest.v >= s.flood.minor).length; return `${n} <small>of ${w.length} with a flood level</small>`; })()) +
+    cell(`Highest surge · last ${RANGE_LABEL[range]}`, peak ? `${signed(peak.p.v, 2)} ft <small>${esc(peak.s.name)}</small>` : "—") +
+    cell(`Highest water · last ${RANGE_LABEL[range]}`, (() => { const h = state.tides.map((s) => ({ s, p: peakLevel(s) })).filter((x) => x.p).sort((a, b) => b.p.v - a.p.v)[0]; return h ? `${fmt(h.p.v, 2)} ft <small>${esc(h.s.name)}</small>` : "—"; })()) +
+    `<p class="explain">${esc(REGION.ensoNote)}</p>`;
+}
+
+// ---------- flooding (tides.alola.lol) ----------
+function floodState(s) {
+  const minor = s.flood?.minor;
+  if (minor == null || !s.latest) return { stroke: INK.ring, flooding: false };
+  const gap = s.latest.v - minor;
+  return { stroke: gap >= 0 ? "#ff3b3b" : gap > -0.5 ? "#ffb020" : INK.ring, flooding: gap >= 0 };
+}
+
+function updateFloodMap() {
+  const c = map.getCenter();
+  const g = nearest(state.tides, c.lng, c.lat, (s) => s.mhhw != null && s.latest);
+  let ft = null, info = "";
+  if (flood.pick === "now" || flood.pick === "next") {
+    if (g) {
+      const a = gaugeAboveHigh(g.s);
+      ft = flood.pick === "now" ? a.now : a.next?.v;
+      const when = flood.pick === "next" && a.next ? ` around ${a.next.t.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "";
+      info = ft == null ? "No reading" : `${g.s.name}: ${signed(ft, 1)} ft vs normal high tide${when}`;
+    } else info = "Waiting for tide gauges";
+  } else {
+    ft = +flood.pick;
+    info = `Fixed: ${ft} ft above normal high tide`;
+  }
+  const lv = ft == null || ft < 0.25 ? null : snapLevel(ft);
+  flood.level = lv;
+  if (map.getSource("floodmap") && lv != null) map.getSource("floodmap").setTiles(floodTiles(lv));
+  const L = LAYERS.find((x) => x.id === "floodmap");
+  if (map.getLayer("floodmap-raster")) applyVisibility(L);
+  const sel = document.getElementById("flood-level");
+  if (sel) sel.value = flood.pick;
+  setStatus("floodmap", lv == null ? `${info} · nothing extra under water` : `${info} · shading ${lv} ft`);
+}
+
+function inRange(t) { return +t >= Date.now() - rangeMs(); }
+function renderReports() {
+  const list = state.reports.filter((r) => inRange(r.t));
+  map.getSource("reports")?.setData({
+    type: "FeatureCollection",
+    features: list.map((r, i) => pt(r.lon, r.lat, { id: i, kind: "report", name: r.type, label: r.place, color: REPORT_COLORS[reportClass(r)] })),
+  });
+  const nws = list.filter((r) => r.kind === "lsr").length, sf = list.length - nws;
+  setStatus("reports", `${list.length} in the last ${RANGE_LABEL[range]} · ${nws} NWS${REGION.sf311 ? ` · ${sf} SF 311` : ""}`);
+}
+function renderRivers() {
+  const f = state.rivers.flooding;
+  map.getSource("rivers")?.setData({
+    type: "FeatureCollection",
+    features: f.map((g) => {
+      const cat = RIVER_COLORS[g.now] ? g.now : g.forecast;
+      return pt(g.lon, g.lat, { id: g.id, kind: "river", name: g.name, color: RIVER_COLORS[cat] || "#9fb3c8",
+        label: `${g.name.split(/ at | near /i)[0].slice(0, 24)}\n${RIVER_COLORS[g.now] ? g.now : `forecast ${g.forecast}`}` });
+    }),
+  });
+  setStatus("rivers", f.length ? `${f.length} at action stage or flooding · of ${state.rivers.watched} watched` : `None flooding · ${state.rivers.watched} gauges watched`);
+}
+function renderNews() {
+  const list = state.news.filter((n) => inRange(n.t));
+  $("#news-count").textContent = list.length ? `${list.length} · last ${RANGE_LABEL[range]}` : "";
+  $("#news-list").innerHTML = list.length
+    ? list.slice(0, 25).map((n) => `<li><a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span>${esc(n.source)} · ${timeAgo(n.t)}</span></li>`).join("")
+    : `<li class="none">No flooding news in the last ${RANGE_LABEL[range]}.</li>`;
+}
+function applyFloods(f) {
+  state.reports = f.reports;
+  state.rivers = f.rivers;
+  state.news = f.news;
+  renderReports();
+  renderRivers();
+  renderNews();
+}
+
+function applyUsgs(g) {
+  state.usgs = g.gauges;
+  map.getSource("usgs")?.setData({
+    type: "FeatureCollection",
+    features: state.usgs.filter((x) => x.stageFt != null || x.flowCfs != null).map((x) => pt(x.lon, x.lat, {
+      id: x.id, kind: "usgs", name: x.name, color: changeColor(x.change24hFt),
+      label: x.stageFt != null ? `${signed(x.change24hFt, 1)} ft/24h` : `${fmt(x.flowCfs, 0)} cfs`,
+    })),
+  });
+  setStatus("usgs", `${state.usgs.length} gauges · USGS · ${timeAgo(newest(state.usgs.map((x) => x.updated)))}`);
 }
 
 const APPLY = {
+  gauges: [applyUsgs, ["usgs"]],
+  floods: [applyFloods, ["reports", "rivers"]],
   weather: [applyWeather, ["wx", "alerts"]],
-  tides: [(t) => { applyTides(t); renderTemps(); }, ["tides"]],
+  tides: [(t) => { applyTides(t); renderTemps(); updateFloodMap(); openDefaultStation(); }, ["tides"]],
   buoys: [(b) => { applyBuoys(b); renderTemps(); }, ["buoys"]],
   climate: [applyClimate, ["sla"]],
 };
 
+let openedDefault = false;
+// Open a station as soon as the tide gauges arrive: the last one opened in this region, else Alameda in the
+// SF Bay (her ask 2026-11-24), else the region's first gauge. A saved buoy waits for the buoys snapshot.
+function openDefaultStation() {
+  if (openedDefault || !state.tides.length || current) return;
+  openedDefault = true;
+  const [kind, id] = (store.get(`tides-station-${REGION.id}`) || "").split(":");
+  if (kind === "tide" && state.tides.some((t) => t.id === id)) return showTide(id);
+  if (kind === "buoy") {
+    const tryBuoy = (n) => (state.buoys.some((b) => b.id === id) ? (current ? null : showBuoy(id)) : n > 0 && setTimeout(() => tryBuoy(n - 1), 1000));
+    return tryBuoy(15);
+  }
+  showTide(REGION.id === "sfbay" && state.tides.some((t) => t.id === "9414750") ? "9414750" : state.tides[0].id);
+}
 async function loadAll({ force = false } = {}) {
   const btn = $("#refresh");
   btn.classList.add("spinning");
@@ -480,10 +691,12 @@ async function loadAll({ force = false } = {}) {
   }));
   renderSignals();
   btn.classList.remove("spinning");
+
   // "As of" = the oldest snapshot on screen, i.e. the most conservative claim.
-  const asOf = Math.min(...Object.values(state.generated).map(Number));
+  // the climate snapshot only changes every few hours, so it doesn't count toward "data as of"
+  const asOf = Math.min(...Object.entries(state.generated).filter(([g]) => g !== "climate").map(([, t]) => Number(t)));
   $("#updated").textContent = isFinite(asOf)
-    ? `Data as of ${new Date(asOf).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · Bay Area`
+    ? `Data as of ${new Date(asOf).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · ${REGION.name}`
     : "Data unavailable — will retry";
   if (current) current.refresh?.();
 }
@@ -511,14 +724,14 @@ const hover = new maplibregl.Popup({ closeButton: false, closeOnClick: false, of
 let clickMarker = null;
 
 function wireInteractions() {
-  const clickable = ["wx-circle", "buoys-circle", "tides-circle", "sst-circle", "sla-halo", "alerts-fill"];
+  const clickable = ["reports-circle", "rivers-circle", "usgs-circle", "wx-circle", "buoys-circle", "tides-circle", "sst-circle", "sla-halo", "alerts-fill"];
   for (const id of clickable) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; hover.remove(); });
     map.on("mousemove", id, (e) => {
       const p = e.features[0].properties;
       const title = p.event || p.name;
-      const sub = p.event ? p.areaDesc?.split(";")[0] : p.label?.replace("\n", " · ");
+      const sub = p.event ? p.areaDesc?.split(";")[0] : p.label?.replaceAll("\n", " · ");
       hover.setLngLat(e.lngLat).setHTML(`<b>${esc(title)}</b><span>${esc(sub || "")}</span>`).addTo(map);
     });
   }
@@ -529,7 +742,11 @@ function wireInteractions() {
     // prefer point features over alert polygons
     const f = feats.find((x) => x.layer.id !== "alerts-fill") || feats[0];
     const p = f.properties;
-    if (f.layer.id === "alerts-fill") return showAlerts(feats.filter((x) => x.layer.id === "alerts-fill"), e.lngLat);
+    // tides.alola.lol: inside an alert area, still answer "flooding here?" for the spot, with the alerts under it
+    if (f.layer.id === "alerts-fill") return showPointForecast(e.lngLat, feats.filter((x) => x.layer.id === "alerts-fill"));
+    if (p.kind === "report") return showReports(e.lngLat);
+    if (p.kind === "river") return showRiver(p.id);
+    if (p.kind === "usgs") return showUsgs(p.id);
     if (p.kind === "tide") return showTide(p.id);
     if (p.kind === "buoy") return showBuoy(p.id);
     if (p.kind === "wx") return showWx(p.id);
@@ -537,6 +754,7 @@ function wireInteractions() {
 }
 
 function showTide(id) {
+  store.set(`tides-station-${REGION.id}`, `tide:${id}`);
   const render = () => {
     const s = state.tides.find((x) => x.id === id) ||
       state.climateStations.find((x) => x.id === id);
@@ -544,6 +762,9 @@ function showTide(id) {
     const temp = state.temps.get(id);
     const monthly = state.monthly.get(id) || [];
     const nextEx = (s.extremes || []).filter((x) => x.t > Date.now()).slice(0, 4);
+    const t0 = Date.now() - rangeMs(), t1 = Date.now() + Math.min(rangeMs(), 48 * 3600e3);
+    const hiLvl = peakLevel(s), hiRes = peakResidual(s);
+    const when = (t) => t.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
     openDetail(`
       <div class="d-kicker">Tide gauge · ${id}</div>
       <h2 class="d-title">${esc(s.name)}</h2>
@@ -553,9 +774,16 @@ function showTide(id) {
         ${temp ? `<div class="stat"><div class="stat-label">Water</div><div class="stat-value">${fmt(temp.v, 1)}<small>°F</small></div></div>` : ""}
       </div>
       <div class="d-caption">${s.latest ? `Observed ${timeAgo(s.latest.t)}` : "No recent observations"}</div>
+      <ul class="d-list">
+        <li><span class="lbl">Highest water · last ${RANGE_LABEL[range]}</span><span>${hiLvl ? `${fmt(hiLvl.v, 2)} ft · ${when(hiLvl.t)}` : "—"}</span></li>
+        <li><span class="lbl">Highest surge · last ${RANGE_LABEL[range]}</span><span>${hiRes ? `${signed(hiRes.v, 2)} ft · ${when(hiRes.t)}` : "—"}</span></li>
+        ${s.mhhw != null && s.latest ? `<li><span class="lbl">Now vs normal high tide (MHHW ${fmt(s.mhhw, 2)} ft)</span><span>${signed(s.latest.v - s.mhhw, 2)} ft</span></li>` : ""}
+        ${s.flood?.minor != null ? `<li><span class="lbl">${s.flood.src} minor flood level</span><span>${fmt(s.flood.minor, 2)} ft${s.latest ? ` · ${s.latest.v >= s.flood.minor ? `<b class="pos">FLOODING, ${fmt(s.latest.v - s.flood.minor, 2)} ft over</b>` : `${fmt(s.flood.minor - s.latest.v, 2)} ft to go`}` : ""}</span></li>` : `<li><span class="lbl">Flood level</span><span>NOAA sets none for this gauge</span></li>`}
+        ${s.flood?.moderate != null ? `<li><span class="lbl">Moderate · major flood level</span><span>${fmt(s.flood.moderate, 2)} · ${fmt(s.flood.major, 2)} ft</span></li>` : ""}
+      </ul>
       <div class="d-section">
-        <h3>Water level · past 36 h / next 48 h</h3>
-        <div><span class="legend-line"><i style="border-color:var(--accent)"></i>Observed</span><span class="legend-line"><i class="dash" style="border-color:#8b95a7"></i>Predicted</span></div>
+        <h3>Water level · past ${RANGE_LABEL[range]} / next ${range === "3d" ? "48 hours" : RANGE_LABEL[range]}</h3>
+        <div><span class="legend-line"><i style="border-color:var(--accent)"></i>Observed</span><span class="legend-line"><i class="dash" style="border-color:#8b95a7"></i>Predicted</span>${s.flood?.minor != null ? `<span class="legend-line"><i class="dash" style="border-color:#ff5a5f"></i>Minor flood level</span>` : ""}</div>
         <div id="tide-chart" class="chart-wrap"></div>
       </div>
       ${nextEx.length ? `<div class="d-section"><h3>Next highs & lows</h3><ul class="d-list">${nextEx.map((x) => `
@@ -568,12 +796,13 @@ function showTide(id) {
       <div class="d-section d-caption"><a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=${id}" target="_blank" rel="noopener">NOAA Tides & Currents station page ↗</a></div>
     `, render);
     lineChart($("#tide-chart"), {
-      height: 150, now: true,
+      height: 150, now: true, xDomain: [t0, t1],
       series: [
-        { data: s.predicted || [], color: "#8b95a7", dash: "4 3", width: 1.3 },
-        { data: s.observed || [], color: "#5ec8e5", width: 2, area: true },
+        { data: inWindow(s.predicted, t0, t1), color: "#8b95a7", dash: "4 3", width: 1.3 },
+        { data: inWindow(s.observed, t0, t1), color: "#5ec8e5", width: 2, area: true },
+        ...(s.flood?.minor != null ? [{ data: [{ t: new Date(t0), v: s.flood.minor }, { t: new Date(t1), v: s.flood.minor }], color: "#ff5a5f", dash: "2 3", width: 1.2 }] : []),
       ],
-      markers: nextEx.map((x) => ({ t: x.t, v: x.v, label: fmt(x.v, 1), below: x.type.startsWith("L") })),
+      markers: nextEx.filter((x) => +x.t <= t1).map((x) => ({ t: x.t, v: x.v, label: fmt(x.v, 1), below: x.type.startsWith("L") })),
       yFormat: (v) => v + "′",
     });
     lineChart($("#sla-chart"), { height: 110, bars: monthly, zero: true, yFormat: (v) => (v > 0 ? "+" : "") + v });
@@ -582,6 +811,7 @@ function showTide(id) {
 }
 
 function showBuoy(id) {
+  store.set(`tides-station-${REGION.id}`, `buoy:${id}`);
   const render = () => {
     const b = state.buoys.find((x) => x.id === id);
     if (!b) return;
@@ -593,14 +823,18 @@ function showBuoy(id) {
         <div class="stat"><div class="stat-label">Period</div><div class="stat-value">${fmt(b.period, 0)}<small>s</small></div></div>
         <div class="stat"><div class="stat-label">Wind</div><div class="stat-value">${fmt(b.windKt, 0)}<small>kt</small></div></div>
         <div class="stat"><div class="stat-label">Sea temp</div><div class="stat-value">${fmt(b.sstF, 1)}<small>°F</small></div></div>
+        ${b.levelFt != null ? `<div class="stat"><div class="stat-label">Water level</div><div class="stat-value">${fmt(b.levelFt, 2)}<small>ft</small></div></div>` : ""}
       </div>
       <div class="d-caption">Updated ${timeAgo(b.updated)}</div>
-      <div class="d-section"><h3>Wave height · 3 days (ft)</h3><div id="wave-chart" class="chart-wrap"></div></div>
-      <div class="d-section"><h3>Sea surface temperature · 3 days (°F)</h3><div id="sst-chart" class="chart-wrap"></div></div>
+      <div class="d-section"><h3>Wave height · last ${RANGE_LABEL[range]} (ft)</h3><div id="wave-chart" class="chart-wrap"></div></div>
+      <div class="d-section"><h3>Sea surface temperature · last ${RANGE_LABEL[range]} (°F)</h3><div id="sst-chart" class="chart-wrap"></div></div>
+      ${b.series.levelFt?.length ? `<div class="d-section"><h3>Water level · last ${RANGE_LABEL[range]} (ft, as the station reports it)</h3><div id="lvl-chart" class="chart-wrap"></div></div>` : ""}
       <div class="d-section d-caption"><a href="https://www.ndbc.noaa.gov/station_page.php?station=${id}" target="_blank" rel="noopener">NDBC station page ↗</a></div>
     `, render);
-    lineChart($("#wave-chart"), { height: 110, series: [{ data: b.series.waveFt, color: "#2fb7c4", area: true }] });
-    lineChart($("#sst-chart"), { height: 110, series: [{ data: b.series.sstF, color: "#f2c14e" }] });
+    const t0 = Date.now() - rangeMs(), xDomain = [t0, Date.now()];
+    lineChart($("#wave-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.waveFt, t0), color: "#2fb7c4", area: true }] });
+    lineChart($("#sst-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.sstF, t0), color: "#f2c14e" }] });
+    if ($("#lvl-chart")) lineChart($("#lvl-chart"), { height: 110, xDomain, series: [{ data: inWindow(b.series.levelFt, t0), color: "#5ec8e5", area: true }] });
   };
   render();
 }
@@ -632,20 +866,110 @@ async function showWx(id) {
   if (!$("#detail").hidden) openDetail(head + fc);
 }
 
-async function showPointForecast(lngLat) {
+async function showPointForecast(lngLat, alertFeats = []) {
   clickMarker = new maplibregl.Marker({ color: "#5ec8e5", scale: 0.7 }).setLngLat(lngLat).addTo(map);
   const head = `<div class="d-kicker">Point forecast</div><h2 class="d-title">${lngLat.lat.toFixed(3)}°, ${lngLat.lng.toFixed(3)}°</h2>`;
-  openDetail(head + `<div class="loading">Loading forecast…</div>`);
-  const fc = await forecastHTML(lngLat.lng, lngLat.lat);
-  if (!$("#detail").hidden) openDetail(head + fc);
+  openDetail(head + `<div class="loading">Checking flooding and the forecast…</div>`);
+  const [fl, fc] = await Promise.all([floodHereHTML(lngLat.lng, lngLat.lat), forecastHTML(lngLat.lng, lngLat.lat)]);
+  if (!$("#detail").hidden) openDetail(head + fl + (alertFeats.length ? alertsHTML(alertFeats) : "") + fc);
+}
+
+// "Is it flooding here / is it going to?" for a clicked spot: NWS alerts covering it, real reports near it,
+// gauges in flood near it, and NOAA's map of how high the water must get to reach it vs. the nearest tide gauge.
+async function floodHereHTML(lon, lat) {
+  const when = (t) => new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const lines = [];
+  const hits = {};
+  for (const f of state.alerts?.features ?? []) if (inGeometry(lon, lat, f.geometry)) hits[f.properties.id] = f.properties;
+  for (const a of Object.values(hits).filter((x) => /flood|surge|surf|tsunami/i.test(x.event))) {
+    const ends = state.alerts.items[a.id]?.ends;
+    lines.push(`<li class="bad"><b>${esc(a.event)}</b> covers this spot${ends ? ` until ${when(ends)}` : ""}.</li>`);
+  }
+
+  const near = state.reports.filter((r) => inRange(r.t)).map((r) => ({ r, d: distM(lon, lat, r.lon, r.lat) })).filter((x) => x.d < 3219).sort((a, b) => a.d - b.d);
+  if (near.length) lines.push(`<li class="bad"><b>${near.length} flood report${near.length > 1 ? "s" : ""}</b> within 2 mi in the last ${RANGE_LABEL[range]}; closest ${miles(near[0].d)} away, ${timeAgo(near[0].r.t)}: ${esc(near[0].r.remark || near[0].r.type)}</li>`);
+  else lines.push(`<li>No flood reports within 2 mi in the last ${RANGE_LABEL[range]}.</li>`);
+
+  const river = nearest(state.rivers.flooding, lon, lat);
+  if (river && river.d < 16093) lines.push(`<li class="warn"><b>${esc(river.s.name)}</b> (${miles(river.d)} away) is at <b>${esc(RIVER_COLORS[river.s.now] ? river.s.now : `forecast ${river.s.forecast}`)}</b> stage.</li>`);
+
+  const g = nearest(state.tides, lon, lat, (s) => s.mhhw != null && s.latest);
+  let spot = null;
+  try { spot = await spotFloodLevel(lon, lat); } catch { spot = null; }
+  if (g) {
+    const a = gaugeAboveHigh(g.s);
+    const gaugeLine = `Nearest tide gauge, <b>${esc(g.s.name)}</b> (${miles(g.d)} away), reads <b>${signed(a.now, 1)} ft</b> vs normal high tide${a.next ? `; highest expected in the next 48 h <b>${signed(a.next.v, 1)} ft</b> around ${when(a.next.t)}` : ""}.`;
+    if (!spot) lines.push(`<li>${gaugeLine} NOAA's flood map couldn't be read for this spot.</li>`);
+    else if (spot.level == null) lines.push(`<li class="good">Water would have to rise <b>more than 10 ft above normal high tide</b> to reach this spot on NOAA's map, so tides won't flood it. ${gaugeLine}</li>`);
+    else if (spot.level === 0) lines.push(`<li>This spot is water, marsh or tideland: NOAA's map has it wet at every normal high tide. ${gaugeLine}</li>`);
+    else {
+      const kind = spot.kind === "low" ? " (low ground behind a barrier: it floods through drains or gaps, not straight over the edge)" : "";
+      const wetNow = a.now != null && a.now >= spot.level;
+      const wetNext = a.next && a.next.v >= spot.level;
+      const verdict = wetNow ? `<li class="bad"><b>Likely flooding now.</b>` : wetNext ? `<li class="warn"><b>Could flood around ${when(a.next.t)}.</b>` : `<li class="good"><b>Not expected to flood from the tide in the next 48 h.</b>`;
+      lines.push(`${verdict} On NOAA's map the water reaches this spot at <b>${spot.level} ft above normal high tide</b>${kind}. ${gaugeLine}</li>`);
+    }
+  }
+  return `<div class="d-section flood-here"><h3>Flooding here?</h3><ul class="flood-lines">${lines.join("")}</ul>
+    <div class="d-caption">Tide check = NOAA ground-height map vs. the nearest gauge's water and forecast (tide + today's surge). Rain, drains and waves can flood places the tide check misses; reports and alerts are what people actually saw.</div></div>`;
+}
+
+function showReports(lngLat) {
+  const list = state.reports.filter((r) => inRange(r.t)).map((r) => ({ r, d: distM(lngLat.lng, lngLat.lat, r.lon, r.lat) })).filter((x) => x.d < 800).sort((a, b) => b.r.t - a.r.t);
+  if (!list.length) return;
+  openDetail(`<div class="d-kicker">${list.length} flood report${list.length > 1 ? "s" : ""} here · last ${RANGE_LABEL[range]}</div>
+    ${list.slice(0, 20).map(({ r }) => `<div class="d-section">
+      <span class="chip" style="background:${REPORT_COLORS[reportClass(r)]}22;color:${REPORT_COLORS[reportClass(r)]}">${esc(r.type)}</span>
+      <h2 class="d-title" style="margin-top:8px;font-size:14px">${esc(r.place)}</h2>
+      <div class="d-caption">${new Date(r.t).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${timeAgo(r.t)}${r.source ? ` · ${esc(r.source)}` : ""}</div>
+      ${r.remark ? `<div class="d-section d-text">${esc(r.remark)}</div>` : ""}
+    </div>`).join("")}`);
+}
+
+function showUsgs(id) {
+  const render = () => {
+    const g = state.usgs.find((x) => x.id === id);
+    if (!g) return;
+    const t0 = Date.now() - rangeMs();
+    const pts = inWindow(g.series.stageFt, t0);
+    const hi = pts.length ? pts.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+    openDetail(`<div class="d-kicker">USGS gauge · ${esc(g.id)}</div><h2 class="d-title">${esc(g.name)}</h2>
+      <div class="d-big">
+        <div class="stat"><div class="stat-label">Water level</div><div class="stat-value">${fmt(g.stageFt, 2)}<small>ft</small></div></div>
+        <div class="stat"><div class="stat-label">24 h change</div><div class="stat-value ${g.change24hFt > 0 ? "pos" : "neg"}">${signed(g.change24hFt, 2)}<small>ft</small></div></div>
+        ${g.flowCfs != null ? `<div class="stat"><div class="stat-label">Flow</div><div class="stat-value">${fmt(g.flowCfs, 0)}<small>cfs</small></div></div>` : ""}
+      </div>
+      <div class="d-caption">Updated ${timeAgo(g.updated)} · level is against this gauge's own zero, not sea level</div>
+      ${hi ? `<ul class="d-list"><li><span class="lbl">Highest · last ${RANGE_LABEL[range]}</span><span>${fmt(hi.v, 2)} ft · ${new Date(hi.t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}</span></li></ul>` : ""}
+      <div class="d-section"><h3>Water level · last ${RANGE_LABEL[range]} (ft)</h3><div id="usgs-chart" class="chart-wrap"></div></div>
+      <div class="d-section d-caption"><a href="https://waterdata.usgs.gov/monitoring-location/${encodeURIComponent(g.id)}/" target="_blank" rel="noopener">USGS station page ↗</a></div>`, render);
+    lineChart($("#usgs-chart"), { height: 120, xDomain: [t0, Date.now()], series: [{ data: pts, color: "#8a63ff", area: true }] });
+  };
+  render();
+}
+
+function showRiver(id) {
+  const g = state.rivers.flooding.find((x) => x.id === id);
+  if (!g) return;
+  const dt = (t) => (t ? new Date(t).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "—");
+  openDetail(`<div class="d-kicker">NOAA gauge · ${esc(g.id)}</div><h2 class="d-title">${esc(g.name)}</h2>
+    <ul class="d-list">
+      <li><span class="lbl">Now</span><span>${esc(String(g.now).replace(/_/g, " "))}${g.nowValue > -999 ? ` · ${fmt(g.nowValue, 2)} ${esc(g.unit)}` : ""} · ${dt(g.t)}</span></li>
+      <li><span class="lbl">Forecast</span><span>${g.forecast ? `${esc(g.forecast)}${g.forecastValue > -999 ? ` · ${fmt(g.forecastValue, 2)}` : ""} · ${dt(g.forecastT)}` : "no flooding forecast"}</span></li>
+    </ul>
+    <div class="d-section d-caption"><a href="https://water.noaa.gov/gauges/${encodeURIComponent(g.id)}" target="_blank" rel="noopener">NOAA water prediction page ↗</a></div>`);
 }
 
 function showAlerts(feats) {
+  const html = alertsHTML(feats);
+  if (html) openDetail(html);
+}
+function alertsHTML(feats) {
   const ids = [...new Set(feats.map((f) => f.properties.id))];
   const list = ids.map((id) => ({ id, ...state.alerts?.items?.[id] })).filter((p) => p.event);
-  if (!list.length) return;
+  if (!list.length) return "";
   const dt = (s) => (s ? new Date(s).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "—");
-  openDetail(`
+  return (`
     <div class="d-kicker">${list.length} active alert${list.length > 1 ? "s" : ""} here</div>
     ${list.map((p) => `
       <div class="d-section">
@@ -667,4 +991,73 @@ map.on("load", () => {
   setInterval(() => { if (!document.hidden) loadAll(); }, REFRESH_MS);
 });
 $("#refresh").addEventListener("click", () => loadAll({ force: true }));
+// Theme picker: Alola CSS palettes. Writes the shared `alola-theme` cookie (across *.alola.lol when hosted there),
+// so alola.lol, EMON, TIDO and this page all change together.
+// Shown as the css.alola.lol colour swatches: each square is the theme's background with its accent along the bottom.
+{
+  const box = $("#theme");
+  const now = document.documentElement.dataset.alola || "white";
+  const P = window.ALOLA_THEMES || {};
+  box.innerHTML = Object.keys(P).map((n) => `<button type="button" class="alola-swatch" data-name="${n}" title="${n}" aria-label="Theme: ${n}" aria-pressed="${n === now}" style="--sw-bg:${P[n][0]};--sw-accent:${P[n][6]}"></button>`).join("");
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest(".alola-swatch");
+    if (!b || b.dataset.name === now) return;
+    const dom = /(^|\.)alola\.lol$/.test(location.hostname) ? ";domain=.alola.lol" : "";
+    document.cookie = `alola-theme=${encodeURIComponent(b.dataset.name)}${dom};path=/;max-age=31536000;SameSite=Lax`;
+    // marks a real choice of "alola" (see index.html: an unmarked "alola" cookie is EMON's old unasked default)
+    document.cookie = `alola-theme-picked=${b.dataset.name === "alola" ? "alola" : ""}${dom};path=/;max-age=${b.dataset.name === "alola" ? 31536000 : 0};SameSite=Lax`;
+    const q = new URLSearchParams(location.search);
+    q.delete("alola");
+    location.href = location.pathname + (q.toString() ? `?${q}` : "") + location.hash;
+  });
+}
+
+const picker = $("#region");
+picker.innerHTML = Object.values(REGIONS).map((r) => `<option value="${r.id}"${r.id === REGION.id ? " selected" : ""}>${esc(r.name)}</option>`).join("");
+picker.addEventListener("change", () => {
+  store.set("tides-region", picker.value);
+  location.href = `${location.pathname}?region=${encodeURIComponent(picker.value)}`; // fresh map view for the new region
+});
+document.title = `Coast Watch · ${REGION.name}`;
+
+function paintTimeline() {
+  for (const b of document.querySelectorAll("#timeline button")) b.setAttribute("aria-pressed", String(b.dataset.range === range));
+}
+for (const b of document.querySelectorAll("#timeline button")) {
+  b.addEventListener("click", () => {
+    range = b.dataset.range;
+    store.set("tides-range", range);
+    paintTimeline();
+    renderSignals();
+    renderReports();
+    renderNews();
+    if (current) current.refresh?.();
+  });
+}
+paintTimeline();
+
+// The header grows with the fonts and pickers; keep the layer panel just under it on wide screens.
+function placeLayers() {
+  // The top bar can wrap onto two lines; everything below it is placed from its real height (--bar-h).
+  const below = Math.ceil($(".brand").getBoundingClientRect().bottom);
+  const wide = window.innerWidth > 820;
+  document.documentElement.style.setProperty("--bar-h", `${below}px`);
+  $("#layers").style.top = "";
+  $("#right").style.top = wide ? "" : `${below}px`; // phones: the details sheet starts under the bar
+  try { map.resize(); } catch {}
+}
+placeLayers();
+window.addEventListener("resize", placeLayers);
+// The bar's height also changes when its text does ("Loading…" -> "Data as of …"), so watch the bar itself.
+if (window.ResizeObserver) new ResizeObserver(() => placeLayers()).observe($(".brand"));
+document.fonts?.ready.then(placeLayers);
+
+document.addEventListener("change", (e) => {
+  if (e.target?.id !== "flood-level") return;
+  flood.pick = e.target.value;
+  store.set("tides-floodmap", flood.pick);
+  updateFloodMap();
+});
+document.addEventListener("focusin", (e) => { if (e.target?.id === "flood-level") e.target.value = flood.pick; });
+map.on("moveend", () => { if (state.tides.length && (flood.pick === "now" || flood.pick === "next")) updateFloodMap(); });
 window.addEventListener("resize", () => { drawOni(); });

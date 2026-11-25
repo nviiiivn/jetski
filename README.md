@@ -1,3 +1,159 @@
+# Coast Watch
+
+Live tides, storm surge, waves and **flooding** on one map, for the SF Bay Area, Seattle / Puget Sound and
+Miami / South Florida. Runs at **https://tides.alola.lol**; a retro telemetry-screen front end for the same data
+lives in [nviiiivn/tido](https://github.com/nviiiivn/tido) (https://tido.alola.lol).
+
+A fork of [rishabhbajpailab/jetski](https://github.com/rishabhbajpailab/jetski) ("Bay Coast Watch"), rebuilt to run
+on any small server (a Raspberry Pi here) instead of Cloudflare Workers, with regions, a timeline and flood data added.
+
+![Coast Watch, SF Bay Area, white theme](docs/screenshots/desktop-white.jpg)
+
+| Dark theme (dracula) | "Flooding here?" at the Embarcadero | Phone |
+|---|---|---|
+| ![dark theme](docs/screenshots/desktop-dracula.jpg) | ![flooding here](docs/screenshots/flooding-here.jpg) | ![phone](docs/screenshots/phone.jpg) |
+
+## What it shows
+
+- **Tide gauges** (NOAA CO-OPS): water level, residual / storm surge (observed minus predicted), the next highs and
+  lows, normal high tide (MHHW), and NOAA/NWS minor, moderate and major flood levels. Gauges at flood level are ringed red.
+- **Buoys and sensors** (NOAA NDBC): wave height and period offshore, wind, water temperature, and water level where
+  a station reports it; inside SF Bay the NOAA PORTS wind sensors.
+- **Flood map** (NOAA sea-level-rise inundation maps): the land the water reaches at the height the nearest tide
+  gauge reads now, the highest it's forecast to reach in 48 h, or a fixed height.
+- **Flood reports**: NWS Local Storm Reports of flooding (spotters, police, public, media) via the Iowa Environmental
+  Mesonet, plus San Francisco 311 street/sewer flooding requests (DataSF).
+- **Gauges in flood**: NOAA National Water Prediction Service river and tide gauges at action stage or flooding.
+- **NWS alerts**, weather stations, monthly sea-level anomaly, El Niño indices, and flooding in the news (Google News).
+- **"Flooding here?"**: click anywhere for the alerts covering that spot, reports near it, and NOAA's ground-height
+  map against the nearest gauge's water and forecast.
+- **Timeline** 1H · 6H · 24H · 3D for every chart, peak, report and news list.
+- **Themes**: the alola.lol palettes (white by default, dark ones on the picker), VT323 / Share Tech Mono fonts.
+- Opens on the Alameda tide gauge in the SF Bay Area, then remembers the last station you opened per region.
+
+## Run it on your own server
+
+Needs Node.js 20 or newer and outbound HTTPS to the public data sources. No API keys, no database.
+
+```sh
+git clone -b tides-alola https://github.com/nviiiivn/jetski.git coast-watch
+cd coast-watch
+npm install
+npm run build      # builds the page into dist/
+npm start          # serves dist/ and the data API on http://127.0.0.1:8970
+```
+
+Open http://127.0.0.1:8970/. The first visit to a region takes a few seconds while the server fetches it; after that
+each data group is cached (tides and weather 5–6 min, buoys 15 min, flood reports 10 min, climate 6 h) and refreshed
+in the background when it goes stale. Cached snapshots are kept in `.data/` so a restart starts warm.
+
+| Environment variable | Default | What it does |
+|---|---|---|
+| `PORT` | `8970` | Port to listen on |
+| `HOST` | `127.0.0.1` | Address to listen on (`0.0.0.0` to expose it without a proxy) |
+| `UPSTREAM_TIMEOUT_MS` | `15000` | Timeout per upstream request; `40000` suits slow home links |
+| `NWS_USER_AGENT` | `(coast-watch, self-hosted …)` | How the server identifies itself to api.weather.gov; NWS asks for your site name and a contact, e.g. `(tides.example.com, you@example.com)` |
+| `RATE_DATA_PER_MIN` | `240` | Data requests allowed per visitor per minute (a page load is about 6); over it the server answers 429 |
+| `RATE_FORECAST_PER_MIN` | `30` | Point forecasts (map clicks) allowed per visitor per minute; each new point is a fresh NWS lookup |
+| `TIDO_DIR` | `../tido` | Folder of the [TIDO](https://github.com/nviiiivn/tido) page, served at `/__tido/` and for any host name starting with `tido.` |
+
+**Reverse proxy (Caddy):**
+
+```caddyfile
+tides.example.com {
+	reverse_proxy 127.0.0.1:8970
+}
+```
+
+**Reverse proxy (nginx):**
+
+```nginx
+server {
+    server_name tides.example.com;
+    location / {
+        proxy_pass http://127.0.0.1:8970;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;  # so the rate limit counts each visitor, not the proxy
+    }
+}
+```
+
+**systemd (user unit), `~/.config/systemd/user/coast-watch.service`:**
+
+```ini
+[Unit]
+Description=Coast Watch
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=%h/coast-watch
+Environment=PORT=8970
+Environment=UPSTREAM_TIMEOUT_MS=40000
+ExecStart=/usr/bin/env node --max-old-space-size=512 server/serve.mjs
+Restart=always
+RestartSec=5
+MemoryMax=900M
+
+[Install]
+WantedBy=default.target
+```
+
+`systemctl --user enable --now coast-watch` (and `loginctl enable-linger $USER` so it runs without a login).
+
+**Watchdog (optional, recommended).** `server/watchdog.sh` restarts the service if it stops answering (page within
+15 s, a data snapshot within 120 s, two misses 20 s apart). Run it every 2 minutes with a timer:
+
+```ini
+# ~/.config/systemd/user/coast-watch-watchdog.service
+[Service]
+Type=oneshot
+Environment=UNIT=coast-watch.service
+ExecStart=/bin/sh %h/coast-watch/server/watchdog.sh
+```
+
+```ini
+# ~/.config/systemd/user/coast-watch-watchdog.timer
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+```
+
+`systemctl --user enable --now coast-watch-watchdog.timer`. Snapshots live in `.data/` and survive restarts, so a
+restart costs a few seconds, and while NOAA or NWS are down the page keeps showing the last good data.
+After `git pull`, run `npm run build` for page changes and restart the service for server or station changes.
+
+## Regions and stations
+
+Every region, station and data source lives in `shared/stations.js`: map center and bounds, NOAA tide gauge ids,
+NDBC buoy/sensor ids, NWS weather stations, the NWS offices whose alerts and storm reports to show, and the news
+search. To add a region, copy one, fill in ids you have checked live, rebuild and restart.
+
+## Data sources
+
+NOAA CO-OPS (Tides & Currents) · NOAA NDBC · NOAA Office for Coastal Management sea level rise maps · NOAA National
+Water Prediction Service · NWS api.weather.gov · NWS Local Storm Reports via the Iowa Environmental Mesonet ·
+DataSF 311 · NOAA CPC (ENSO) · Google News search · map tiles by OpenStreetMap US, © OpenStreetMap contributors,
+© OpenMapTiles · MapLibre GL · VT323 and Share Tech Mono fonts (SIL OFL, `site/fonts/OFL.txt`).
+
+Flood maps are a model of ground height, not observations: drains, pumps and levees change what actually floods.
+Reports and alerts are what people saw.
+
+## Notes
+
+- `npm test` still contains the original Cloudflare Worker tests; four of them (site build, cron pre-warm, R2 index,
+  scheduled) fail outside Cloudflare and don't apply to the Node server.
+- License: MIT (see `LICENSE`), same as the original project.
+
+---
+
+The original README follows.
+
+---
+
 # Bay Coast Watch
 
 A small, map-first dashboard for following **El Niño and its effects on the San Francisco Bay Area coast**: tides and storm surge, monthly sea-level anomalies, coastal water temperature, offshore waves, and NWS weather alerts. Everything comes from free public U.S. government data.

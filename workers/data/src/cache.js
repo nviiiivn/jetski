@@ -60,7 +60,11 @@ const ageOf = (snap, now) => (now - snap.generatedAt) / 1000;
 export function refresh(env, spec, now = () => Date.now()) {
   if (inflight.has(spec.id)) return inflight.get(spec.id);
   const p = (async () => {
-    const data = await spec.build();
+    // The previous snapshot goes to the build (as a promise, read while the build runs; it never rejects), so a
+    // station that fails this time can keep its last good reading.
+    const prev = (async () => (await readEdge(spec.id).catch(() => null)) ||
+      (spec.persist === false ? null : await readR2(env, spec.id).catch(() => null)))().catch(() => null);
+    const data = await spec.build(prev);
     const snap = { id: spec.id, generatedAt: now(), ttl: spec.ttl, data };
     await Promise.all([
       writeEdge(spec.id, snap, spec.ttl + spec.stale),

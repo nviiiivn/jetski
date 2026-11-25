@@ -30,6 +30,7 @@ async function bundle(entry, ext) {
     format: ext === "js" ? "esm" : undefined,
     target: ["es2022", "chrome111", "firefox114", "safari16.4"],
     legalComments: "none",
+    external: ["/fonts/*"], // served as plain files (copied below), not bundled
     write: false,
     logLevel: "warning",
   });
@@ -59,6 +60,7 @@ for (const s of ['/css/style.css"', '/js/app.js"', "MAPLIBRE_VERSION"])
 await writeFile(join(out, "index.html"), html);
 await cp(join(site, "404.html"), join(out, "404.html"));
 await cp(join(site, "_headers"), join(out, "_headers"));
+await cp(join(site, "fonts"), join(out, "fonts"), { recursive: true }); // Alola CSS fonts (VT323, Share Tech Mono; OFL)
 
 console.log(`dist/${js.name}  ${(js.bytes / 1024).toFixed(1)} KB`);
 console.log(`dist/${css.name}  ${(css.bytes / 1024).toFixed(1)} KB`);

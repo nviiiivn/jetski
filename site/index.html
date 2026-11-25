@@ -3,29 +3,74 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Bay Coast Watch</title>
-  <meta name="description" content="El Niño, tides, coastal water and weather for the San Francisco Bay Area, from NOAA & NWS public data." />
+  <title>Coast Watch</title>
+  <script>
+    // Alola CSS themes (the same palettes as alola.lol, EMON and TIDO). The theme is the `alola-theme` cookie that
+    // every *.alola.lol site shares (or ?alola=<name> to try one); no cookie = "white". Set before first paint.
+    (function () {
+      var P = {
+        alola: ["#0a0014", "#120025", "#1a0033", "#3a1a5a", "#d4c8ff", "#9a8abb", "#ffcc00", "#00ff88"],
+        white: ["#ffffff", "#f5f5f5", "#ececec", "#d4d4d4", "#0a0a0a", "#555555", "#e11d48", "#111111"],
+        red: ["#1a0004", "#2a0008", "#3a0010", "#7a2030", "#ffe0e4", "#cc9999", "#ff2a44", "#ff7a66"],
+        black: ["#000000", "#0a0a0a", "#161616", "#2e2e2e", "#f5f5f5", "#888888", "#ff2a44", "#e5e5e5"],
+        dark: ["#0a0a0a", "#111111", "#1a1a1a", "#2a2a2a", "#e0e0e0", "#666666", "#888888", "#00ff00"],
+        light: ["#fafafa", "#f0f0f4", "#e6e6ea", "#d4d4da", "#1a1a1e", "#6b7280", "#4f46e5", "#16a34a"],
+        sepia: ["#fdf6e3", "#f5e6c8", "#efe0b8", "#d8c8a0", "#433422", "#7a6a5a", "#b58900", "#589500"],
+        cyberpunk: ["#0a0020", "#120030", "#1a0045", "#6633cc", "#f0e0ff", "#8877bb", "#ff00ff", "#00ffaa"],
+        ocean: ["#0a1628", "#0f1f3a", "#152a4a", "#1e3a5f", "#e0f0ff", "#6080b0", "#4fc3ff", "#4caf88"],
+        dracula: ["#282a36", "#1e1f2b", "#21222c", "#44475a", "#f8f8f2", "#6272a4", "#bd93f9", "#50fa7b"],
+        gruvbox: ["#282828", "#1d2021", "#32302f", "#504945", "#ebdbb2", "#928374", "#fabd2f", "#b8bb26"],
+        tokyo: ["#1a1b26", "#16161e", "#1f2335", "#363b54", "#c0d0ff", "#565f89", "#7aa2f7", "#9ece6a"],
+        matrix: ["#000000", "#001100", "#002200", "#003300", "#00ff00", "#006600", "#00ff00", "#00ff00"],
+        solarized: ["#002b36", "#073642", "#093b46", "#1a5a6a", "#d0d0a0", "#586e75", "#b58900", "#859900"],
+        pastel: ["#1a1a2e", "#16213e", "#1f2a47", "#3a4a6a", "#f0e0ff", "#a0a0c0", "#ff88cc", "#88dd88"],
+        catppuccin: ["#1e1e2e", "#181825", "#232340", "#45475a", "#cdd6f4", "#6c7086", "#89b4fa", "#a6e3a1"]
+      };
+      window.ALOLA_THEMES = P;
+      var q = (location.search.match(/[?&]alola=([a-z]+)/) || [])[1];
+      var m = document.cookie.match(/(?:^|; )alola-theme=([^;]+)/), c = m && decodeURIComponent(m[1]);
+      // Before 2026-11-25 EMON saved alola-theme=alola in every browser that opened it, unasked. So "alola" counts
+      // only when someone picked it (alola-theme-picked=alola, written by the pickers); otherwise it means white.
+      if (c === "alola" && !/(?:^|; )alola-theme-picked=alola(?:;|$)/.test(document.cookie)) c = null;
+      var name = P[q] ? q : P[c] ? c : "white";
+      var v = P[name];
+      var hex = function (h) { h = h.replace("#", ""); return h.length === 3 ? h.replace(/(.)/g, "$1$1") : h; };
+      var lum = function (h) { var n = parseInt(hex(h), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
+      var light = lum(v[0]) > 0.5;
+      var r = document.documentElement;
+      r.setAttribute("data-theme", light ? "light" : "dark");
+      r.setAttribute("data-alola", name);
+      var s = r.style;
+      s.setProperty("--bg", v[0]); s.setProperty("--bg2", v[1]); s.setProperty("--surface", v[2]);
+      s.setProperty("--border", v[3]); s.setProperty("--glass-border", v[3]);
+      s.setProperty("--glass", "#" + hex(v[1]) + "f2");
+      s.setProperty("--text", v[4]); s.setProperty("--text2", v[4]); s.setProperty("--muted", v[5]); s.setProperty("--faint", v[5]);
+      s.setProperty("--accent", v[6]); s.setProperty("--green", v[7]);
+      s.setProperty("--tint", light ? "0, 0, 0" : "255, 255, 255");
+    })();
+  </script>
+  <meta name="description" content="Tides, surge, coastal water and weather for the SF Bay Area, Puget Sound, Los Angeles and South Florida, from NOAA & NWS public data." />
+  <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230b1a29'/><path d='M4 18c4-4 8 4 12 0s8 4 12 0' stroke='%235ec8e5' stroke-width='3' fill='none' stroke-linecap='round'/></svg>" />
-  <!-- Start the data snapshots downloading before any script runs. -->
-  <link rel="preload" href="/snapshot/weather" as="fetch" crossorigin />
-  <link rel="preload" href="/snapshot/tides" as="fetch" crossorigin />
-  <link rel="preload" href="/snapshot/buoys" as="fetch" crossorigin />
-  <link rel="preload" href="/snapshot/climate" as="fetch" crossorigin />
   <link rel="preconnect" href="https://tiles.openstreetmap.us" crossorigin />
   <link rel="stylesheet" href="/vendor/maplibre-gl@MAPLIBRE_VERSION/maplibre-gl.css" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
-  <div id="map" aria-label="Map of the San Francisco Bay Area"></div>
+  <div id="map" aria-label="Coast map"></div>
 
   <header class="brand glass">
     <div class="brand-mark" aria-hidden="true">
       <svg viewBox="0 0 32 32"><path d="M3 18c4.3-4.3 8.7 4.3 13 0s8.7 4.3 13 0" /><path d="M3 24c4.3-4.3 8.7 4.3 13 0s8.7 4.3 13 0" opacity=".5" /></svg>
     </div>
     <div>
-      <h1>Bay Coast Watch</h1>
+      <h1>Coast Watch</h1>
+      <div class="picks">
+        <label class="region-pick"><span class="sr-only">Region</span><select id="region" aria-label="Region"></select></label>
+      </div>
       <p class="sub"><span id="updated">Loading…</span></p>
     </div>
+    <div id="theme" class="theme-swatches" role="group" aria-label="Theme (shared with alola.lol, EMON and TIDO)"></div>
     <button id="refresh" class="icon-btn" title="Refresh data" aria-label="Refresh data">
       <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" /></svg>
     </button>
@@ -37,7 +82,16 @@
       <span class="hint">drag to reorder</span>
     </div>
     <ul id="layer-list"></ul>
+    <p class="credit">Built on <a href="https://github.com/rishabhbajpailab/jetski" target="_blank" rel="noopener">jetski (Bay Coast Watch)</a> · data NOAA &amp; NWS</p>
   </aside>
+
+  <nav id="timeline" class="glass" aria-label="Timeline">
+    <span class="tl-label">Timeline</span>
+    <button type="button" data-range="1h">1H</button>
+    <button type="button" data-range="6h">6H</button>
+    <button type="button" data-range="24h">24H</button>
+    <button type="button" data-range="3d">3D</button>
+  </nav>
 
   <aside id="right" aria-label="Details">
     <section id="enso" class="panel glass">
@@ -61,6 +115,14 @@
       </div>
       <div id="oni-chart" class="chart-wrap"></div>
       <div class="bay-signals" id="bay-signals"></div>
+    </section>
+
+    <section id="news" class="panel glass" aria-label="Flooding in the news">
+      <div class="panel-head">
+        <h2>Flooding in the news</h2>
+        <span id="news-count" class="hint"></span>
+      </div>
+      <ul id="news-list"><li class="none">Loading…</li></ul>
     </section>
 
     <section id="detail" class="panel glass" hidden>
