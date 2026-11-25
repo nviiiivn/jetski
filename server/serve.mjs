@@ -12,6 +12,11 @@
 // Listens on 127.0.0.1:${PORT} only; Caddy (host tides.alola.lol) is the front door.
 
 import { createServer } from "node:http";
+import net from "node:net";
+
+// The Pi has no IPv6 route and the home link is slow to connect, so Node's default 250 ms per address attempt made
+// whole bursts of NOAA/NWS requests fail with ETIMEDOUT (stations went missing from snapshots). 2.5 s fixes it.
+net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 import { readFile, writeFile, mkdir, stat, rename } from "node:fs/promises";
 import { join, normalize, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
