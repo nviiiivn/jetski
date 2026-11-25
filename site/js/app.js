@@ -623,12 +623,25 @@ function applyFloods(f) {
 const APPLY = {
   floods: [applyFloods, ["reports", "rivers"]],
   weather: [applyWeather, ["wx", "alerts"]],
-  tides: [(t) => { applyTides(t); renderTemps(); updateFloodMap(); }, ["tides"]],
+  tides: [(t) => { applyTides(t); renderTemps(); updateFloodMap(); openDefaultStation(); }, ["tides"]],
   buoys: [(b) => { applyBuoys(b); renderTemps(); }, ["buoys"]],
   climate: [applyClimate, ["sla"]],
 };
 
 let openedDefault = false;
+// Open a station as soon as the tide gauges arrive: the last one opened in this region, else Alameda in the
+// SF Bay (her ask 2026-11-24), else the region's first gauge. A saved buoy waits for the buoys snapshot.
+function openDefaultStation() {
+  if (openedDefault || !state.tides.length || current) return;
+  openedDefault = true;
+  const [kind, id] = (store.get(`tides-station-${REGION.id}`) || "").split(":");
+  if (kind === "tide" && state.tides.some((t) => t.id === id)) return showTide(id);
+  if (kind === "buoy") {
+    const tryBuoy = (n) => (state.buoys.some((b) => b.id === id) ? (current ? null : showBuoy(id)) : n > 0 && setTimeout(() => tryBuoy(n - 1), 1000));
+    return tryBuoy(15);
+  }
+  showTide(REGION.id === "sfbay" && state.tides.some((t) => t.id === "9414750") ? "9414750" : state.tides[0].id);
+}
 async function loadAll({ force = false } = {}) {
   const btn = $("#refresh");
   btn.classList.add("spinning");
@@ -650,13 +663,7 @@ async function loadAll({ force = false } = {}) {
   }));
   renderSignals();
   btn.classList.remove("spinning");
-  if (!openedDefault && state.tides.length) {
-    openedDefault = true;
-    const [kind, id] = (store.get(`tides-station-${REGION.id}`) || "").split(":");
-    if (kind === "buoy" && state.buoys.some((b) => b.id === id)) showBuoy(id);
-    else if (kind === "tide" && state.tides.some((t) => t.id === id)) showTide(id);
-    else showTide(REGION.id === "sfbay" ? "9414750" : state.tides[0].id); // Alameda by default (her ask 2026-11-24)
-  }
+
   // "As of" = the oldest snapshot on screen, i.e. the most conservative claim.
   const asOf = Math.min(...Object.values(state.generated).map(Number));
   $("#updated").textContent = isFinite(asOf)
